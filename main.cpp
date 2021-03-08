@@ -1,4 +1,5 @@
 
+#include <set>
 #include <iostream>
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
@@ -10,10 +11,21 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+struct QueueFamilyIndices
+{
+    uint32_t graphicsFamily = -1;
+    uint32_t presentFamily = -1;
+
+    bool isComplete()
+    {
+        return graphicsFamily != -1 && presentFamily != -1;
+    }
+};
 
 struct Buffer
 {
@@ -83,9 +95,26 @@ private:
 
     GLFWwindow* window;
     vk::UniqueInstance instance;
-    std::vector<vk::PhysicalDevice> physicalDevices;
     vk::UniqueDebugUtilsMessengerEXT messenger;
     vk::UniqueSurfaceKHR surface;
+    vk::UniqueDevice device;
+    vk::PhysicalDevice physicalDevice;
+    vk::UniqueCommandPool commandPool;
+
+    vk::Queue graphicsQueue{};
+    vk::Queue presentQueue{};
+
+    const std::vector<const char*> requiredExtensions{
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
+            VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+            VK_KHR_MAINTENANCE3_EXTENSION_NAME,
+            VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+            VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+    };
 
     void initWindow()
     {
@@ -99,6 +128,7 @@ private:
     {
         createInstance();
         createSurface();
+        createDevice();
         //device = std::make_unique<vkr::Device>(*instance, *surface);
         //swapChain = std::make_unique<vkr::SwapChain>(*device, vk::Extent2D{ WIDTH, HEIGHT });
 
@@ -148,9 +178,8 @@ private:
         instance = vk::createInstanceUnique({ {}, &appInfo, validationLayers, extensions });
         VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
 
-        // Get physical devices
-        physicalDevices = instance->enumeratePhysicalDevices();
-
+        // Get first physical device
+        physicalDevice = instance->enumeratePhysicalDevices().front();
         if (enableValidationLayers) {
             createDebugMessenger();
         }
@@ -179,6 +208,71 @@ private:
         }
         vk::ObjectDestroy<vk::Instance, VULKAN_HPP_DEFAULT_DISPATCHER_TYPE> _deleter(*instance);
         surface = vk::UniqueSurfaceKHR(vk::SurfaceKHR(_surface), _deleter);
+    }
+
+    void createDevice()
+    {
+        QueueFamilyIndices indices = findQueueFamilies();
+
+        std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
+        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily, indices.presentFamily };
+
+        // Create queues
+        float queuePriority = 1.0f;
+        for (uint32_t queueFamily : uniqueQueueFamilies) {
+            vk::DeviceQueueCreateInfo queueCreateInfo({}, queueFamily, 1, &queuePriority);
+            queueCreateInfos.push_back(queueCreateInfo);
+        }
+
+        // Set physical device features
+        vk::PhysicalDeviceFeatures deviceFeatures{};
+        deviceFeatures.fillModeNonSolid = true;
+        deviceFeatures.samplerAnisotropy = true;
+
+        vk::PhysicalDeviceDescriptorIndexingFeaturesEXT indexingFeatures{};
+        indexingFeatures.runtimeDescriptorArray = true;
+
+        vk::DeviceCreateInfo createInfo{
+            {}, queueCreateInfos, validationLayers, requiredExtensions, &deviceFeatures };
+
+        vk::StructureChain<vk::DeviceCreateInfo,
+            vk::PhysicalDeviceDescriptorIndexingFeaturesEXT,
+            vk::PhysicalDeviceBufferDeviceAddressFeatures,
+            vk::PhysicalDeviceRayTracingPipelineFeaturesKHR,
+            vk::PhysicalDeviceAccelerationStructureFeaturesKHR,
+            vk::PhysicalDeviceShaderClockFeaturesKHR>
+            createInfoChain{ createInfo, indexingFeatures, {true}, {true}, {true}, {true, true} };
+
+        device = physicalDevice.createDeviceUnique(createInfoChain.get<vk::DeviceCreateInfo>());
+        VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
+
+        graphicsQueue = device->getQueue(indices.graphicsFamily, 0);
+        presentQueue = device->getQueue(indices.presentFamily, 0);
+
+        commandPool = device->createCommandPoolUnique(
+            { vk::CommandPoolCreateFlagBits::eResetCommandBuffer, indices.graphicsFamily });
+
+        std::cout << "device was created\n";
+    }
+
+    QueueFamilyIndices findQueueFamilies()
+    {
+        QueueFamilyIndices indices;
+        int i = 0;
+        for (const auto& queueFamily : physicalDevice.getQueueFamilyProperties()) {
+            if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
+                indices.graphicsFamily = i;
+            }
+            VkBool32 presentSupport = physicalDevice.getSurfaceSupportKHR(i, *surface);
+            if (presentSupport) {
+                indices.presentFamily = i;
+            }
+            if (indices.isComplete()) {
+                break;
+            }
+            i++;
+        }
+        return indices;
     }
 };
 
