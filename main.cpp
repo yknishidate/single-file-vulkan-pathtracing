@@ -133,6 +133,7 @@ struct QueueFamilyIndices
 struct Buffer
 {
     vk::Device device;
+    vk::PhysicalDevice physicalDevice;
     vk::UniqueBuffer buffer;
     vk::UniqueDeviceMemory memory;
     vk::DeviceSize size;
@@ -149,11 +150,12 @@ struct Buffer
         buffer = device.createBufferUnique({ {}, size, usage });
     }
 
-    void bindMemory(vk::PhysicalDevice physicalDevice, vk::MemoryPropertyFlags properties)
+    void bindMemory(vk::PhysicalDevice physicalDevice)
     {
         auto requirements = device.getBufferMemoryRequirements(*buffer);
         auto memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits,
-                                              vk::MemoryPropertyFlagBits::eDeviceLocal);
+                                              vk::MemoryPropertyFlagBits::eHostVisible
+                                              | vk::MemoryPropertyFlagBits::eHostCoherent);
         vk::MemoryAllocateInfo allocInfo{ requirements.size, memoryTypeIndex };
 
         if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
@@ -169,6 +171,14 @@ struct Buffer
             memory = device.allocateMemoryUnique(allocInfo);
             device.bindBufferMemory(*buffer, *memory, 0);
         }
+    }
+
+    void fillData(void* data)
+    {
+        mapped = device.mapMemory(*memory, 0, size);
+        memcpy(mapped, data, static_cast<size_t>(size));
+        vk::MappedMemoryRange mapped_range{ *memory, 0, size };
+        device.flushMappedMemoryRanges(mapped_range);
     }
 };
 
@@ -307,7 +317,7 @@ private:
         createDevice();
         createSwapChain();
         createStorageImage();
-        createBuffers();
+        createMeshBuffers();
         buildAccelStruct();
 
         //loadShaders();
@@ -566,7 +576,7 @@ private:
         assert(res == vk::Result::eSuccess);
     }
 
-    void createBuffers()
+    void createMeshBuffers()
     {
         std::vector<Vertex> vertices{ { {1.0f, 1.0f, 0.0f} },
                                       { {-1.0f, 1.0f, 0.0f} },
@@ -574,19 +584,16 @@ private:
         std::vector<uint32_t> indices{ 0, 1, 2 };
 
         using vkbu = vk::BufferUsageFlagBits;
-        using vkmp = vk::MemoryPropertyFlagBits;
         vk::BufferUsageFlags usage{ vkbu::eAccelerationStructureBuildInputReadOnlyKHR
             | vkbu::eStorageBuffer | vkbu::eTransferDst };
-        //| vkbu::eStorageBuffer | vkbu::eShaderDeviceAddress | vkbu::eTransferDst };
-        vk::MemoryPropertyFlags properties{ vkmp::eDeviceLocal };
 
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
         vertexBuffer.createBuffer(*device, vertexBufferSize, usage);
-        vertexBuffer.bindMemory(physicalDevice, properties);
+        vertexBuffer.bindMemory(physicalDevice);
 
         uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
         indexBuffer.createBuffer(*device, indexBufferSize, usage);
-        indexBuffer.bindMemory(physicalDevice, properties);
+        indexBuffer.bindMemory(physicalDevice);
     }
 
     void buildAccelStruct()
