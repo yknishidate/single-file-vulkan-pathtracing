@@ -16,8 +16,21 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+// ------------------------------------------------------------------------------------------------
+// Globals
+// ------------------------------------------------------------------------------------------------
+constexpr int WIDTH = 800;
+constexpr int HEIGHT = 600;
+#ifdef _DEBUG
+const bool enableValidationLayers = true;
+#else
+const bool enableValidationLayers = false;
+#endif
+std::vector<const char*> validationLayers;
 
-// Debug callback
+// ------------------------------------------------------------------------------------------------
+// Functuins
+// ------------------------------------------------------------------------------------------------
 VKAPI_ATTR VkBool32 VKAPI_CALL
 debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                             VkDebugUtilsMessageTypeFlagsEXT messageTypes,
@@ -118,18 +131,50 @@ uint32_t findMemoryType(const vk::PhysicalDevice physicalDevice,
     throw std::runtime_error("failed to find suitable memory type");
 }
 
-
-struct QueueFamilyIndices
+vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
+    const std::vector<vk::SurfaceFormatKHR>& formats)
 {
-    uint32_t graphicsFamily = -1;
-    uint32_t presentFamily = -1;
-
-    bool isComplete()
-    {
-        return graphicsFamily != -1 && presentFamily != -1;
+    if (formats.size() == 1 && formats[0].format == vk::Format::eUndefined) {
+        return { vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear };
     }
-};
+    for (const auto& format : formats) {
+        if (format.format == vk::Format::eB8G8R8A8Unorm
+            && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
+            return format;
+        }
+    }
+    throw std::runtime_error("found no suitable surface format");
+}
 
+vk::PresentModeKHR chooseSwapPresentMode(
+    const std::vector<vk::PresentModeKHR>& availablePresentModes)
+{
+    for (const auto& availablePresentMode : availablePresentModes) {
+        if (availablePresentMode == vk::PresentModeKHR::eFifoRelaxed) {
+            return availablePresentMode;
+        }
+    }
+    return vk::PresentModeKHR::eFifo;
+}
+
+vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities)
+{
+    if (capabilities.currentExtent.width != UINT32_MAX) {
+        return capabilities.currentExtent;
+    }
+
+    vk::Extent2D actualExtent{ WIDTH, HEIGHT };
+    actualExtent.width = std::min(std::max(actualExtent.width, capabilities.minImageExtent.width),
+                                  capabilities.maxImageExtent.width);
+    actualExtent.height = std::min(std::max(actualExtent.height, capabilities.minImageExtent.height),
+                                   capabilities.maxImageExtent.height);
+    return actualExtent;
+}
+
+
+// ------------------------------------------------------------------------------------------------
+// Structs
+// ------------------------------------------------------------------------------------------------
 struct Buffer
 {
     vk::Device device;
@@ -235,17 +280,10 @@ struct Vertex
     glm::vec4 color;
 };
 
-// Globals
-constexpr int WIDTH = 800;
-constexpr int HEIGHT = 600;
-#ifdef _DEBUG
-const bool enableValidationLayers = true;
-#else
-const bool enableValidationLayers = false;
-#endif
-std::vector<const char*> validationLayers;
 
-
+// ------------------------------------------------------------------------------------------------
+// Application
+// ------------------------------------------------------------------------------------------------
 class Application
 {
 public:
@@ -288,7 +326,6 @@ private:
 
     Buffer vertexBuffer;
     Buffer indexBuffer;
-
 
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -496,51 +533,11 @@ private:
         std::cout << "created swapchain\n";
     }
 
-    vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
-        const std::vector<vk::SurfaceFormatKHR>& formats)
-    {
-        if (formats.size() == 1 && formats[0].format == vk::Format::eUndefined) {
-            return { vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear };
-        }
-        for (const auto& format : formats) {
-            if (format.format == vk::Format::eB8G8R8A8Unorm
-                && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
-                return format;
-            }
-        }
-        throw std::runtime_error("found no suitable surface format");
-    }
-
-    vk::PresentModeKHR chooseSwapPresentMode(
-        const std::vector<vk::PresentModeKHR>& availablePresentModes)
-    {
-        for (const auto& availablePresentMode : availablePresentModes) {
-            if (availablePresentMode == vk::PresentModeKHR::eFifoRelaxed) {
-                return availablePresentMode;
-            }
-        }
-        return vk::PresentModeKHR::eFifo;
-    }
-
-    vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities)
-    {
-        if (capabilities.currentExtent.width != UINT32_MAX) {
-            return capabilities.currentExtent;
-        }
-
-        vk::Extent2D actualExtent = extent;
-        actualExtent.width = std::min(std::max(actualExtent.width, capabilities.minImageExtent.width),
-                                      capabilities.maxImageExtent.width);
-        actualExtent.height = std::min(std::max(actualExtent.height, capabilities.minImageExtent.height),
-                                       capabilities.maxImageExtent.height);
-        return actualExtent;
-    }
 
     void createStorageImage()
     {
         storageImage.createImage(*device, extent, format,
-                                 vk::ImageUsageFlagBits::eStorage
-                                 | vk::ImageUsageFlagBits::eTransferSrc);
+                                 vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc);
         storageImage.bindMemory(physicalDevice);
         storageImage.createImageView();
 
@@ -557,8 +554,7 @@ private:
     vk::UniqueCommandBuffer createCommandBuffer()
     {
         vk::UniqueCommandBuffer commandBuffer = std::move(
-            device->allocateCommandBuffersUnique(
-                { *commandPool, vk::CommandBufferLevel::ePrimary, 1 }).front());
+            device->allocateCommandBuffersUnique({ *commandPool, vk::CommandBufferLevel::ePrimary, 1 }).front());
         commandBuffer->begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
         return commandBuffer;
     }
@@ -610,5 +606,11 @@ private:
 int main()
 {
     Application app;
-    app.run();
+    try {
+        app.run();
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
