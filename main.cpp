@@ -222,8 +222,6 @@ struct Buffer
     {
         mapped = device.mapMemory(*memory, 0, size);
         memcpy(mapped, data, static_cast<size_t>(size));
-        vk::MappedMemoryRange mapped_range{ *memory, 0, size };
-        device.flushMappedMemoryRanges(mapped_range);
     }
 };
 
@@ -533,7 +531,6 @@ private:
         std::cout << "created swapchain\n";
     }
 
-
     void createStorageImage()
     {
         storageImage.createImage(*device, extent, format,
@@ -586,10 +583,12 @@ private:
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
         vertexBuffer.createBuffer(*device, vertexBufferSize, usage);
         vertexBuffer.bindMemory(physicalDevice);
+        vertexBuffer.fillData(vertices.data());
 
         uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
         indexBuffer.createBuffer(*device, indexBufferSize, usage);
         indexBuffer.bindMemory(physicalDevice);
+        indexBuffer.fillData(indices.data());
     }
 
     void buildAccelStruct()
