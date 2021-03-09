@@ -195,12 +195,10 @@ struct Buffer
         buffer = device.createBufferUnique({ {}, size, usage });
     }
 
-    void bindMemory(vk::PhysicalDevice physicalDevice)
+    void bindMemory(vk::PhysicalDevice physicalDevice, vk::MemoryPropertyFlags property)
     {
         auto requirements = device.getBufferMemoryRequirements(*buffer);
-        auto memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits,
-                                              vk::MemoryPropertyFlagBits::eHostVisible
-                                              | vk::MemoryPropertyFlagBits::eHostCoherent);
+        auto memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits, property);
         vk::MemoryAllocateInfo allocInfo{ requirements.size, memoryTypeIndex };
 
         if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
@@ -278,6 +276,29 @@ struct Vertex
     glm::vec4 color;
 };
 
+struct AccelerationStructure
+{
+    vk::UniqueAccelerationStructureKHR handle;
+    Buffer buffer;
+
+    void createBuffer(vk::Device device, vk::PhysicalDevice physicalDevice,
+                      vk::AccelerationStructureGeometryKHR geometry,
+                      vk::AccelerationStructureTypeKHR type, uint32_t primitiveCount)
+    {
+        vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo{ type,
+            vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace };
+        buildGeometryInfo.setGeometries(geometry);
+
+        auto buildSizesInfo = device.getAccelerationStructureBuildSizesKHR(
+            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
+        auto size = buildSizesInfo.accelerationStructureSize;
+        auto usage = vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR
+            | vk::BufferUsageFlagBits::eShaderDeviceAddress;
+
+        buffer.createBuffer(device, size, usage);
+        buffer.bindMemory(physicalDevice, vk::MemoryPropertyFlagBits::eDeviceLocal);
+    }
+};
 
 // ------------------------------------------------------------------------------------------------
 // Application
@@ -322,8 +343,15 @@ private:
 
     Image storageImage;
 
+    std::vector<Vertex> vertices{ { {1.0f, 1.0f, 0.0f} },
+                                  { {-1.0f, 1.0f, 0.0f} },
+                                  { {0.0f, -1.0f, 0.0f} } };
+    std::vector<uint32_t> indices{ 0, 1, 2 };
     Buffer vertexBuffer;
     Buffer indexBuffer;
+
+    AccelerationStructure bottomLevelAS;
+    AccelerationStructure topLevelAS;
 
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -353,7 +381,7 @@ private:
         createSwapChain();
         createStorageImage();
         createMeshBuffers();
-        buildAccelStruct();
+        createBottomLevelAS();
 
         //loadShaders();
 
@@ -571,32 +599,41 @@ private:
 
     void createMeshBuffers()
     {
-        std::vector<Vertex> vertices{ { {1.0f, 1.0f, 0.0f} },
-                                      { {-1.0f, 1.0f, 0.0f} },
-                                      { {0.0f, -1.0f, 0.0f} } };
-        std::vector<uint32_t> indices{ 0, 1, 2 };
-
         using vkbu = vk::BufferUsageFlagBits;
         vk::BufferUsageFlags usage{ vkbu::eAccelerationStructureBuildInputReadOnlyKHR
-            | vkbu::eStorageBuffer | vkbu::eTransferDst };
+            | vkbu::eStorageBuffer | vkbu::eTransferDst | vkbu::eShaderDeviceAddress };
 
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
         vertexBuffer.createBuffer(*device, vertexBufferSize, usage);
-        vertexBuffer.bindMemory(physicalDevice);
+        vertexBuffer.bindMemory(physicalDevice,
+                                vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
         vertexBuffer.fillData(vertices.data());
 
         uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
         indexBuffer.createBuffer(*device, indexBufferSize, usage);
-        indexBuffer.bindMemory(physicalDevice);
+        indexBuffer.bindMemory(physicalDevice,
+                               vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
         indexBuffer.fillData(indices.data());
     }
 
-    void buildAccelStruct()
+    void createBottomLevelAS()
     {
+        vk::AccelerationStructureGeometryTrianglesDataKHR triangleData;
+        triangleData.vertexFormat = vk::Format::eR32G32B32Sfloat;
+        triangleData.vertexData = vertexBuffer.deviceAddress;
+        triangleData.vertexStride = sizeof(Vertex);
+        triangleData.maxVertex = vertices.size();
+        triangleData.indexType = vk::IndexType::eUint32;
+        triangleData.indexData = indexBuffer.deviceAddress;
 
+        vk::AccelerationStructureGeometryKHR geometry;
+        geometry.geometryType = vk::GeometryTypeKHR::eTriangles;
+        geometry.geometry = { triangleData };
+        geometry.flags = vk::GeometryFlagBitsKHR::eOpaque;
 
-
-        std::cout << "builded accel struct\n";
+        uint32_t primitiveCount = indices.size() / 3;
+        bottomLevelAS.createBuffer(*device, physicalDevice, geometry,
+                                   vk::AccelerationStructureTypeKHR::eBottomLevel, primitiveCount);
     }
 
 };
