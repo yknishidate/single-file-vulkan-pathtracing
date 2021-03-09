@@ -16,47 +16,6 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-struct QueueFamilyIndices
-{
-    uint32_t graphicsFamily = -1;
-    uint32_t presentFamily = -1;
-
-    bool isComplete()
-    {
-        return graphicsFamily != -1 && presentFamily != -1;
-    }
-};
-
-struct Buffer
-{
-    vk::Device device;
-    vk::UniqueBuffer buffer;
-    vk::UniqueDeviceMemory memory;
-    vk::DeviceSize size;
-    uint64_t deviceAddress;
-    void* mapped = nullptr;
-};
-
-struct Image
-{
-    vk::Device device;
-    vk::UniqueImage image;
-    vk::UniqueImageView view;
-    vk::UniqueDeviceMemory memory;
-    vk::Extent2D extent;
-    vk::Format format;
-    vk::ImageLayout imageLayout;
-};
-
-// Globals
-constexpr int WIDTH = 800;
-constexpr int HEIGHT = 600;
-#ifdef _DEBUG
-const bool enableValidationLayers = true;
-#else
-const bool enableValidationLayers = false;
-#endif
-std::vector<const char*> validationLayers;
 
 // Debug callback
 VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -145,6 +104,106 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
     cmdBuf.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, imageMemoryBarrier);
 }
 
+uint32_t findMemoryType(const vk::PhysicalDevice physicalDevice,
+                        const uint32_t typeFilter,
+                        const vk::MemoryPropertyFlags properties)
+{
+    vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
+    for (uint32_t i = 0; i != memProperties.memoryTypeCount; ++i) {
+        if ((typeFilter & (1 << i))
+            && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+    throw std::runtime_error("failed to find suitable memory type");
+}
+
+
+struct QueueFamilyIndices
+{
+    uint32_t graphicsFamily = -1;
+    uint32_t presentFamily = -1;
+
+    bool isComplete()
+    {
+        return graphicsFamily != -1 && presentFamily != -1;
+    }
+};
+
+struct Buffer
+{
+    vk::Device device;
+    vk::UniqueBuffer buffer;
+    vk::UniqueDeviceMemory memory;
+    vk::DeviceSize size;
+    uint64_t deviceAddress;
+    void* mapped = nullptr;
+};
+
+struct Image
+{
+    vk::Device device;
+    vk::UniqueImage image;
+    vk::UniqueImageView view;
+    vk::UniqueDeviceMemory memory;
+    vk::Extent2D extent;
+    vk::Format format;
+    vk::ImageLayout imageLayout;
+
+    void createImage(vk::Device device, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage)
+    {
+        this->device = device;
+        this->extent = extent;
+        this->format = format;
+
+        vk::ImageCreateInfo imageInfo;
+        imageInfo.imageType = vk::ImageType::e2D;
+        imageInfo.extent.width = extent.width;
+        imageInfo.extent.height = extent.height;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.format = format;
+        imageInfo.tiling = vk::ImageTiling::eOptimal;
+        imageInfo.usage = usage;
+        image = device.createImageUnique(imageInfo);
+    }
+
+    void bindMemory(vk::PhysicalDevice physicalDevice)
+    {
+        auto requirements = device.getImageMemoryRequirements(*image);
+        auto memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits,
+                                              vk::MemoryPropertyFlagBits::eDeviceLocal);
+        memory = device.allocateMemoryUnique({ requirements.size, memoryTypeIndex });
+        device.bindImageMemory(*image, *memory, 0);
+    }
+
+    void createImageView()
+    {
+        vk::ImageViewCreateInfo viewInfo{ {}, *image, vk::ImageViewType::e2D, format };
+        viewInfo.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+        view = device.createImageViewUnique(viewInfo);
+    }
+};
+
+struct Vertex
+{
+    glm::vec3 pos;
+    glm::vec3 normal;
+    glm::vec4 color;
+};
+
+// Globals
+constexpr int WIDTH = 800;
+constexpr int HEIGHT = 600;
+#ifdef _DEBUG
+const bool enableValidationLayers = true;
+#else
+const bool enableValidationLayers = false;
+#endif
+std::vector<const char*> validationLayers;
+
+
 class Application
 {
 public:
@@ -212,8 +271,7 @@ private:
         createDevice();
         createSwapChain();
         createStorageImage();
-
-        //buildAccelStruct();
+        buildAccelStruct();
 
         //loadShaders();
 
@@ -421,46 +479,23 @@ private:
     {
         if (capabilities.currentExtent.width != UINT32_MAX) {
             return capabilities.currentExtent;
-        } else {
-            int width, height;
-            glfwGetFramebufferSize(window, &width, &height);
-            vk::Extent2D actualExtent{ static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
-            actualExtent.width = std::max(actualExtent.width,
-                                          std::min(capabilities.minImageExtent.width,
-                                                   capabilities.maxImageExtent.width));
-            actualExtent.height = std::max(actualExtent.height,
-                                           std::min(capabilities.minImageExtent.height,
-                                                    capabilities.maxImageExtent.height));
-            return actualExtent;
         }
+
+        vk::Extent2D actualExtent = extent;
+        actualExtent.width = std::min(std::max(actualExtent.width, capabilities.minImageExtent.width),
+                                      capabilities.maxImageExtent.width);
+        actualExtent.height = std::min(std::max(actualExtent.height, capabilities.minImageExtent.height),
+                                       capabilities.maxImageExtent.height);
+        return actualExtent;
     }
 
     void createStorageImage()
     {
-        // Create image
-        vk::ImageCreateInfo imageInfo;
-        imageInfo.imageType = vk::ImageType::e2D;
-        imageInfo.extent.width = extent.width;
-        imageInfo.extent.height = extent.height;
-        imageInfo.extent.depth = 1;
-        imageInfo.mipLevels = 1;
-        imageInfo.arrayLayers = 1;
-        imageInfo.format = format;
-        imageInfo.tiling = vk::ImageTiling::eOptimal;
-        imageInfo.usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc;
-        storageImage.image = device->createImageUnique(imageInfo);
-
-        // Bind memory
-        auto requirements = device->getImageMemoryRequirements(*storageImage.image);
-        auto memoryTypeIndex = findMemoryType(requirements.memoryTypeBits,
-                                              vk::MemoryPropertyFlagBits::eDeviceLocal);
-        storageImage.memory = device->allocateMemoryUnique({ requirements.size, memoryTypeIndex });
-        device->bindImageMemory(*storageImage.image, *storageImage.memory, 0);
-
-        // Create image view
-        vk::ImageViewCreateInfo viewInfo{ {}, *storageImage.image, vk::ImageViewType::e2D, format };
-        viewInfo.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-        storageImage.view = device->createImageViewUnique(viewInfo);
+        storageImage.createImage(*device, extent, format,
+                                 vk::ImageUsageFlagBits::eStorage
+                                 | vk::ImageUsageFlagBits::eTransferSrc);
+        storageImage.bindMemory(physicalDevice);
+        storageImage.createImageView();
 
         // Set image layout
         storageImage.imageLayout = vk::ImageLayout::eGeneral;
@@ -494,19 +529,39 @@ private:
         assert(res == vk::Result::eSuccess);
     }
 
-    uint32_t findMemoryType(const uint32_t typeFilter,
-                            const vk::MemoryPropertyFlags properties) const
+    void buildAccelStruct()
     {
-        vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
-        for (uint32_t i = 0; i != memProperties.memoryTypeCount; ++i) {
-            if ((typeFilter & (1 << i))
-                && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-                return i;
-            }
-        }
-        throw std::runtime_error("failed to find suitable memory type");
+        std::vector<Vertex> vertices{ { {1.0f, 1.0f, 0.0f} },
+                                      { {-1.0f, 1.0f, 0.0f} },
+                                      { {0.0f, -1.0f, 0.0f} } };
+        std::vector<uint32_t> indices{ 0, 1, 2 };
+
+        //uint32_t verticesCount = vertices.size();
+        //Buffer vertexBuffer;
+
+        //uint32_t indicesCount = indices.size();
+        //Buffer indexBuffer;
+
+        //std::cout << "builded accel struct\n";
     }
 
+    //template <typename T>
+    //void createBuffer(std::vector<T> data)
+    //{
+    //    using vkbu = vk::BufferUsageFlagBits;
+    //    using vkmp = vk::MemoryPropertyFlagBits;
+    //    vk::BufferUsageFlags usage{ vkbu::eAccelerationStructureBuildInputReadOnlyKHR
+    //                              | vkbu::eStorageBuffer
+    //                              | vkbu::eShaderDeviceAddress
+    //                              | vkbu::eTransferDst };
+    //    vk::MemoryPropertyFlags properties{ vkmp::eDeviceLocal };
+
+    //    uint64_t bufferSize = data.size() * sizeof(T);
+    //    Buffer buffer{device, bufferSize, usage, properties, (void*)vertices.data());
+
+    //    uint64_t indexBufferSize = indicesCount * sizeof(uint32_t);
+    //    indexBuffer = std::make_unique<Buffer>(device, indexBufferSize, usage, properties, (void*)indices.data());
+    //}
 
 };
 
