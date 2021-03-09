@@ -136,8 +136,40 @@ struct Buffer
     vk::UniqueBuffer buffer;
     vk::UniqueDeviceMemory memory;
     vk::DeviceSize size;
+    vk::BufferUsageFlags usage;
     uint64_t deviceAddress;
     void* mapped = nullptr;
+
+    void createBuffer(vk::Device device, vk::DeviceSize size, vk::BufferUsageFlags usage)
+    {
+        this->device = device;
+        this->size = size;
+        this->usage = usage;
+
+        buffer = device.createBufferUnique({ {}, size, usage });
+    }
+
+    void bindMemory(vk::PhysicalDevice physicalDevice, vk::MemoryPropertyFlags properties)
+    {
+        auto requirements = device.getBufferMemoryRequirements(*buffer);
+        auto memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits,
+                                              vk::MemoryPropertyFlagBits::eDeviceLocal);
+        vk::MemoryAllocateInfo allocInfo{ requirements.size, memoryTypeIndex };
+
+        if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
+            vk::MemoryAllocateFlagsInfo flagsInfo{ vk::MemoryAllocateFlagBits::eDeviceAddress };
+            allocInfo.pNext = &flagsInfo;
+
+            memory = device.allocateMemoryUnique(allocInfo);
+            device.bindBufferMemory(*buffer, *memory, 0);
+
+            vk::BufferDeviceAddressInfoKHR bufferDeviceAI{ *buffer };
+            deviceAddress = device.getBufferAddressKHR(&bufferDeviceAI);
+        } else {
+            memory = device.allocateMemoryUnique(allocInfo);
+            device.bindBufferMemory(*buffer, *memory, 0);
+        }
+    }
 };
 
 struct Image
@@ -244,6 +276,10 @@ private:
 
     Image storageImage;
 
+    Buffer vertexBuffer;
+    Buffer indexBuffer;
+
+
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
@@ -271,6 +307,7 @@ private:
         createDevice();
         createSwapChain();
         createStorageImage();
+        createBuffers();
         buildAccelStruct();
 
         //loadShaders();
@@ -529,39 +566,36 @@ private:
         assert(res == vk::Result::eSuccess);
     }
 
-    void buildAccelStruct()
+    void createBuffers()
     {
         std::vector<Vertex> vertices{ { {1.0f, 1.0f, 0.0f} },
                                       { {-1.0f, 1.0f, 0.0f} },
                                       { {0.0f, -1.0f, 0.0f} } };
         std::vector<uint32_t> indices{ 0, 1, 2 };
 
-        //uint32_t verticesCount = vertices.size();
-        //Buffer vertexBuffer;
+        using vkbu = vk::BufferUsageFlagBits;
+        using vkmp = vk::MemoryPropertyFlagBits;
+        vk::BufferUsageFlags usage{ vkbu::eAccelerationStructureBuildInputReadOnlyKHR
+            | vkbu::eStorageBuffer | vkbu::eTransferDst };
+        //| vkbu::eStorageBuffer | vkbu::eShaderDeviceAddress | vkbu::eTransferDst };
+        vk::MemoryPropertyFlags properties{ vkmp::eDeviceLocal };
 
-        //uint32_t indicesCount = indices.size();
-        //Buffer indexBuffer;
+        uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+        vertexBuffer.createBuffer(*device, vertexBufferSize, usage);
+        vertexBuffer.bindMemory(physicalDevice, properties);
 
-        //std::cout << "builded accel struct\n";
+        uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
+        indexBuffer.createBuffer(*device, indexBufferSize, usage);
+        indexBuffer.bindMemory(physicalDevice, properties);
     }
 
-    //template <typename T>
-    //void createBuffer(std::vector<T> data)
-    //{
-    //    using vkbu = vk::BufferUsageFlagBits;
-    //    using vkmp = vk::MemoryPropertyFlagBits;
-    //    vk::BufferUsageFlags usage{ vkbu::eAccelerationStructureBuildInputReadOnlyKHR
-    //                              | vkbu::eStorageBuffer
-    //                              | vkbu::eShaderDeviceAddress
-    //                              | vkbu::eTransferDst };
-    //    vk::MemoryPropertyFlags properties{ vkmp::eDeviceLocal };
+    void buildAccelStruct()
+    {
 
-    //    uint64_t bufferSize = data.size() * sizeof(T);
-    //    Buffer buffer{device, bufferSize, usage, properties, (void*)vertices.data());
 
-    //    uint64_t indexBufferSize = indicesCount * sizeof(uint32_t);
-    //    indexBuffer = std::make_unique<Buffer>(device, indexBufferSize, usage, properties, (void*)indices.data());
-    //}
+
+        std::cout << "builded accel struct\n";
+    }
 
 };
 
