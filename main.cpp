@@ -74,6 +74,77 @@ debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeveri
     return VK_FALSE;
 }
 
+void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
+                           vk::ImageLayout oldLayout, vk::ImageLayout newLayout)
+{
+    vk::PipelineStageFlags srcStageMask = vk::PipelineStageFlagBits::eAllCommands;
+    vk::PipelineStageFlags dstStageMask = vk::PipelineStageFlagBits::eAllCommands;
+
+    vk::ImageMemoryBarrier imageMemoryBarrier{};
+    imageMemoryBarrier
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(image)
+        .setOldLayout(oldLayout)
+        .setNewLayout(newLayout)
+        .setSubresourceRange({ vk::ImageAspectFlagBits::eColor , 0, 1, 0, 1 });
+
+    // Source layouts (old)
+    switch (oldLayout) {
+        case vk::ImageLayout::eUndefined:
+            imageMemoryBarrier.srcAccessMask = {};
+            break;
+        case vk::ImageLayout::ePreinitialized:
+            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eHostWrite;
+            break;
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            break;
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+            break;
+        case vk::ImageLayout::eTransferSrcOptimal:
+            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
+            break;
+        case vk::ImageLayout::eTransferDstOptimal:
+            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+            break;
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
+            break;
+        default:
+            break;
+    }
+
+    // Target layouts (new)
+    switch (newLayout) {
+        case vk::ImageLayout::eTransferDstOptimal:
+            imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+            break;
+        case vk::ImageLayout::eTransferSrcOptimal:
+            imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+            break;
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            break;
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            imageMemoryBarrier.dstAccessMask = imageMemoryBarrier.dstAccessMask
+                | vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+            break;
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            if (imageMemoryBarrier.srcAccessMask == vk::AccessFlags{}) {
+                imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eHostWrite
+                    | vk::AccessFlagBits::eTransferWrite;
+            }
+            imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+            break;
+        default:
+            break;
+    }
+
+    cmdBuf.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, imageMemoryBarrier);
+}
+
 class Application
 {
 public:
@@ -101,8 +172,18 @@ private:
     vk::PhysicalDevice physicalDevice;
     vk::UniqueCommandPool commandPool;
 
-    vk::Queue graphicsQueue{};
-    vk::Queue presentQueue{};
+    uint32_t graphicsFamily;
+    uint32_t presentFamily;
+    vk::Queue graphicsQueue;
+    vk::Queue presentQueue;
+
+    vk::UniqueSwapchainKHR swapChain;
+    vk::PresentModeKHR presentMode;
+    vk::Format format;
+    vk::Extent2D extent;
+    std::vector<vk::Image> swapChainImages;
+
+    Image storageImage;
 
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -129,10 +210,8 @@ private:
         createInstance();
         createSurface();
         createDevice();
-        //device = std::make_unique<vkr::Device>(*instance, *surface);
-        //swapChain = std::make_unique<vkr::SwapChain>(*device, vk::Extent2D{ WIDTH, HEIGHT });
-
-        //storageImage = swapChain->createStorageImage();
+        createSwapChain();
+        createStorageImage();
 
         //buildAccelStruct();
 
@@ -160,7 +239,7 @@ private:
         glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
         std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
-        // Create DynamicLoader (see https://github.com/KhronosGroup/Vulkan-Hpp)
+        // Setup DynamicLoader (see https://github.com/KhronosGroup/Vulkan-Hpp)
         static vk::DynamicLoader dl;
         auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
         VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
@@ -212,10 +291,10 @@ private:
 
     void createDevice()
     {
-        QueueFamilyIndices indices = findQueueFamilies();
+        findQueueFamilies();
 
         std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily, indices.presentFamily };
+        std::set<uint32_t> uniqueQueueFamilies = { graphicsFamily, presentFamily };
 
         // Create queues
         float queuePriority = 1.0f;
@@ -225,11 +304,11 @@ private:
         }
 
         // Set physical device features
-        vk::PhysicalDeviceFeatures deviceFeatures{};
+        vk::PhysicalDeviceFeatures deviceFeatures;
         deviceFeatures.fillModeNonSolid = true;
         deviceFeatures.samplerAnisotropy = true;
 
-        vk::PhysicalDeviceDescriptorIndexingFeaturesEXT indexingFeatures{};
+        vk::PhysicalDeviceDescriptorIndexingFeaturesEXT indexingFeatures;
         indexingFeatures.runtimeDescriptorArray = true;
 
         vk::DeviceCreateInfo createInfo{
@@ -246,35 +325,191 @@ private:
         device = physicalDevice.createDeviceUnique(createInfoChain.get<vk::DeviceCreateInfo>());
         VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
 
-        graphicsQueue = device->getQueue(indices.graphicsFamily, 0);
-        presentQueue = device->getQueue(indices.presentFamily, 0);
+        graphicsQueue = device->getQueue(graphicsFamily, 0);
+        presentQueue = device->getQueue(presentFamily, 0);
 
         commandPool = device->createCommandPoolUnique(
-            { vk::CommandPoolCreateFlagBits::eResetCommandBuffer, indices.graphicsFamily });
+            { vk::CommandPoolCreateFlagBits::eResetCommandBuffer, graphicsFamily });
 
-        std::cout << "device was created\n";
+        std::cout << "created device\n";
     }
 
-    QueueFamilyIndices findQueueFamilies()
+    void findQueueFamilies()
     {
-        QueueFamilyIndices indices;
         int i = 0;
         for (const auto& queueFamily : physicalDevice.getQueueFamilyProperties()) {
             if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
-                indices.graphicsFamily = i;
+                graphicsFamily = i;
             }
-            VkBool32 presentSupport = physicalDevice.getSurfaceSupportKHR(i, *surface);
+            vk::Bool32 presentSupport = physicalDevice.getSurfaceSupportKHR(i, *surface);
             if (presentSupport) {
-                indices.presentFamily = i;
+                presentFamily = i;
             }
-            if (indices.isComplete()) {
+            if (graphicsFamily != -1 && presentFamily != -1) {
                 break;
             }
             i++;
         }
-        return indices;
     }
+
+    void createSwapChain()
+    {
+        // Query swapchain support
+        vk::SurfaceCapabilitiesKHR capabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
+        std::vector<vk::SurfaceFormatKHR> formats = physicalDevice.getSurfaceFormatsKHR(*surface);
+        std::vector<vk::PresentModeKHR> presentModes = physicalDevice.getSurfacePresentModesKHR(*surface);
+
+        // Choose swapchain settings
+        vk::SurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(formats);
+        format = surfaceFormat.format;
+        presentMode = chooseSwapPresentMode(presentModes);
+        extent = chooseSwapExtent(capabilities);
+        uint32_t imageCount = capabilities.minImageCount + 1;
+
+        // Create swap chain
+        vk::SwapchainCreateInfoKHR createInfo;
+        createInfo.surface = *surface;
+        createInfo.minImageCount = imageCount;
+        createInfo.imageFormat = format;
+        createInfo.imageColorSpace = surfaceFormat.colorSpace;
+        createInfo.imageExtent = extent;
+        createInfo.imageArrayLayers = 1;
+        createInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
+        createInfo.imageSharingMode = vk::SharingMode::eExclusive;
+        createInfo.preTransform = capabilities.currentTransform;
+        createInfo.presentMode = presentMode;
+        createInfo.clipped = true;
+        if (graphicsFamily != presentFamily) {
+            uint32_t queueFamilyIndices[] = { graphicsFamily, presentFamily };
+            createInfo.imageSharingMode = vk::SharingMode::eConcurrent;
+            createInfo.queueFamilyIndexCount = 2;
+            createInfo.pQueueFamilyIndices = queueFamilyIndices;
+        }
+        swapChain = device->createSwapchainKHRUnique(createInfo);
+        swapChainImages = device->getSwapchainImagesKHR(*swapChain);
+
+        std::cout << "created swapchain\n";
+    }
+
+    vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
+        const std::vector<vk::SurfaceFormatKHR>& formats)
+    {
+        if (formats.size() == 1 && formats[0].format == vk::Format::eUndefined) {
+            return { vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear };
+        }
+        for (const auto& format : formats) {
+            if (format.format == vk::Format::eB8G8R8A8Unorm
+                && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
+                return format;
+            }
+        }
+        throw std::runtime_error("found no suitable surface format");
+    }
+
+    vk::PresentModeKHR chooseSwapPresentMode(
+        const std::vector<vk::PresentModeKHR>& availablePresentModes)
+    {
+        for (const auto& availablePresentMode : availablePresentModes) {
+            if (availablePresentMode == vk::PresentModeKHR::eFifoRelaxed) {
+                return availablePresentMode;
+            }
+        }
+        return vk::PresentModeKHR::eFifo;
+    }
+
+    vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities)
+    {
+        if (capabilities.currentExtent.width != UINT32_MAX) {
+            return capabilities.currentExtent;
+        } else {
+            int width, height;
+            glfwGetFramebufferSize(window, &width, &height);
+            vk::Extent2D actualExtent{ static_cast<uint32_t>(width), static_cast<uint32_t>(height) };
+            actualExtent.width = std::max(actualExtent.width,
+                                          std::min(capabilities.minImageExtent.width,
+                                                   capabilities.maxImageExtent.width));
+            actualExtent.height = std::max(actualExtent.height,
+                                           std::min(capabilities.minImageExtent.height,
+                                                    capabilities.maxImageExtent.height));
+            return actualExtent;
+        }
+    }
+
+    void createStorageImage()
+    {
+        // Create image
+        vk::ImageCreateInfo imageInfo;
+        imageInfo.imageType = vk::ImageType::e2D;
+        imageInfo.extent.width = extent.width;
+        imageInfo.extent.height = extent.height;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.format = format;
+        imageInfo.tiling = vk::ImageTiling::eOptimal;
+        imageInfo.usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc;
+        storageImage.image = device->createImageUnique(imageInfo);
+
+        // Bind memory
+        auto requirements = device->getImageMemoryRequirements(*storageImage.image);
+        auto memoryTypeIndex = findMemoryType(requirements.memoryTypeBits,
+                                              vk::MemoryPropertyFlagBits::eDeviceLocal);
+        storageImage.memory = device->allocateMemoryUnique({ requirements.size, memoryTypeIndex });
+        device->bindImageMemory(*storageImage.image, *storageImage.memory, 0);
+
+        // Create image view
+        vk::ImageViewCreateInfo viewInfo{ {}, *storageImage.image, vk::ImageViewType::e2D, format };
+        viewInfo.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
+        storageImage.view = device->createImageViewUnique(viewInfo);
+
+        // Set image layout
+        storageImage.imageLayout = vk::ImageLayout::eGeneral;
+        auto commandBuffer = createCommandBuffer();
+        transitionImageLayout(*commandBuffer, *storageImage.image,
+                              vk::ImageLayout::eUndefined, storageImage.imageLayout);
+        submitCommandBuffer(*commandBuffer);
+
+        std::cout << "created storage image\n";
+    }
+
+    vk::UniqueCommandBuffer createCommandBuffer()
+    {
+        vk::UniqueCommandBuffer commandBuffer = std::move(
+            device->allocateCommandBuffersUnique(
+                { *commandPool, vk::CommandBufferLevel::ePrimary, 1 }).front());
+        commandBuffer->begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
+        return commandBuffer;
+    }
+
+    void submitCommandBuffer(vk::CommandBuffer& commandBuffer)
+    {
+        commandBuffer.end();
+
+        vk::UniqueFence fence = device->createFenceUnique({});
+        vk::SubmitInfo submitInfo;
+        submitInfo.setCommandBuffers(commandBuffer);
+        graphicsQueue.submit(submitInfo, fence.get());
+        auto res = device->waitForFences(fence.get(), true, UINT64_MAX);
+
+        assert(res == vk::Result::eSuccess);
+    }
+
+    uint32_t findMemoryType(const uint32_t typeFilter,
+                            const vk::MemoryPropertyFlags properties) const
+    {
+        vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
+        for (uint32_t i = 0; i != memProperties.memoryTypeCount; ++i) {
+            if ((typeFilter & (1 << i))
+                && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+        throw std::runtime_error("failed to find suitable memory type");
+    }
+
+
 };
+
 
 int main()
 {
