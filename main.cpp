@@ -415,6 +415,10 @@ private:
     std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
 
+    vk::UniquePipeline pipeline;
+    vk::UniquePipelineLayout pipelineLayout;
+    vk::UniqueDescriptorSetLayout descSetLayout;
+
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
@@ -446,6 +450,7 @@ private:
         createBottomLevelAS();
         createTopLevelAS();
         loadShaders();
+        createRayTracingPipeLine();
 
         //createDescSets();
 
@@ -780,6 +785,34 @@ private:
                                                 reinterpret_cast<const uint32_t*>(code.data()) });
     }
 
+    void createRayTracingPipeLine()
+    {
+        std::vector<vk::DescriptorSetLayoutBinding> bindings;
+        // Binding = 0 : TLAS
+        bindings.push_back({ 0, vk::DescriptorType::eAccelerationStructureKHR,
+                           1, vk::ShaderStageFlagBits::eRaygenKHR });
+        // Binding = 1 : Storage image
+        bindings.push_back({ 1, vk::DescriptorType::eStorageImage,
+                           1, vk::ShaderStageFlagBits::eRaygenKHR });
+
+        // Create layouts
+        descSetLayout = device->createDescriptorSetLayoutUnique({ {}, bindings });
+        pipelineLayout = device->createPipelineLayoutUnique({ {}, *descSetLayout });
+
+        // Create pipeline
+        vk::RayTracingPipelineCreateInfoKHR createInfo;
+        createInfo.setStages(shaderStages);
+        createInfo.setGroups(shaderGroups);
+        createInfo.setMaxPipelineRayRecursionDepth(4);
+        createInfo.setLayout(*pipelineLayout);
+        auto res = device->createRayTracingPipelineKHRUnique(nullptr, nullptr, createInfo);
+        if (res.result == vk::Result::eSuccess) {
+            pipeline = std::move(res.value);
+        } else {
+            throw std::runtime_error("failed to create ray tracing pipeline.");
+        }
+        std::cout << "created raytracing pipeline\n";
+    }
 };
 
 
