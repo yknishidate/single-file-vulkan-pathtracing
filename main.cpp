@@ -131,8 +131,7 @@ uint32_t findMemoryType(const vk::PhysicalDevice physicalDevice,
     throw std::runtime_error("failed to find suitable memory type");
 }
 
-vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
-    const std::vector<vk::SurfaceFormatKHR>& formats)
+vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& formats)
 {
     if (formats.size() == 1 && formats[0].format == vk::Format::eUndefined) {
         return { vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eSrgbNonlinear };
@@ -290,7 +289,6 @@ struct AccelerationStructure
 
     vk::Device device;
     vk::PhysicalDevice physicalDevice;
-    //vk::AccelerationStructureGeometryKHR geometry;
     vk::AccelerationStructureTypeKHR type;
     uint32_t primitiveCount;
     vk::DeviceSize size;
@@ -303,7 +301,6 @@ struct AccelerationStructure
     {
         this->device = device;
         this->physicalDevice = physicalDevice;
-        //this->geometry = geometry;
         this->type = type;
         this->primitiveCount = primitiveCount;
 
@@ -424,6 +421,7 @@ private:
         createStorageImage();
         createMeshBuffers();
         createBottomLevelAS();
+        createTopLevelAS();
 
         //loadShaders();
 
@@ -681,6 +679,46 @@ private:
         submitCommandBuffer(*commandBuffer);
 
         std::cout << "created bottom level as\n";
+    }
+
+    void createTopLevelAS()
+    {
+        VkTransformMatrixKHR transformMatrix = { 1.0f, 0.0f, 0.0f, 0.0f,
+                                                 0.0f, 1.0f, 0.0f, 0.0f,
+                                                 0.0f, 0.0f, 1.0f, 0.0f };
+        vk::AccelerationStructureInstanceKHR asInstance;
+        asInstance.transform = transformMatrix;
+        asInstance.mask = 0xFF;
+        asInstance.accelerationStructureReference = bottomLevelAS.buffer.deviceAddress;
+        asInstance.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
+
+        using vkBU = vk::BufferUsageFlagBits;
+        using vkMP = vk::MemoryPropertyFlagBits;
+        Buffer instancesBuffer;
+        instancesBuffer.create(*device, sizeof(vk::AccelerationStructureInstanceKHR),
+                               vkBU::eAccelerationStructureBuildInputReadOnlyKHR
+                               | vkBU::eShaderDeviceAddress); // ? shaderDevice
+        instancesBuffer.bindMemory(physicalDevice, vkMP::eHostVisible | vkMP::eHostCoherent);
+        instancesBuffer.fillData(&asInstance);
+
+        vk::AccelerationStructureGeometryInstancesDataKHR instancesData;
+        instancesData.arrayOfPointers = false;
+        instancesData.data = instancesBuffer.deviceAddress;
+
+        vk::AccelerationStructureGeometryKHR geometry;
+        geometry.geometryType = vk::GeometryTypeKHR::eInstances;
+        geometry.geometry = { instancesData };
+        geometry.flags = vk::GeometryFlagBitsKHR::eOpaque;
+
+        uint32_t primitiveCount = 1;
+        topLevelAS.createBuffer(*device, physicalDevice, geometry,
+                                vk::AccelerationStructureTypeKHR::eTopLevel, primitiveCount);
+        topLevelAS.create();
+        auto commandBuffer = createCommandBuffer();
+        topLevelAS.build(*commandBuffer);
+        submitCommandBuffer(*commandBuffer);
+
+        std::cout << "created top level as\n";
     }
 
 };
