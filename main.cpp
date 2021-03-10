@@ -17,6 +17,9 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+using vkBU = vk::BufferUsageFlagBits;
+using vkMP = vk::MemoryPropertyFlagBits;
+
 // ----------------------------------------------------------------------------------------------------------
 // Globals
 // ----------------------------------------------------------------------------------------------------------
@@ -300,9 +303,6 @@ struct Vertex
 
 struct AccelerationStructure
 {
-    using vkBU = vk::BufferUsageFlagBits;
-    using vkMP = vk::MemoryPropertyFlagBits;
-
     vk::UniqueAccelerationStructureKHR handle;
     Buffer buffer;
 
@@ -419,6 +419,10 @@ private:
     vk::UniquePipelineLayout pipelineLayout;
     vk::UniqueDescriptorSetLayout descSetLayout;
 
+    Buffer raygenSBT;
+    Buffer missSBT;
+    Buffer hitSBT;
+
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
@@ -451,8 +455,8 @@ private:
         createTopLevelAS();
         loadShaders();
         createRayTracingPipeLine();
-
-        //createDescSets();
+        createShaderBindingTable();
+        createDescriptorSets();
 
         //pipeline = descSets->createRayTracingPipeline(*shaderManager, 1);
         //shaderManager->initShaderBindingTable(*pipeline, 1, 1, 1);
@@ -665,8 +669,6 @@ private:
 
     void createMeshBuffers()
     {
-        using vkBU = vk::BufferUsageFlagBits;
-        using vkMP = vk::MemoryPropertyFlagBits;
         vk::BufferUsageFlags usage{ vkBU::eAccelerationStructureBuildInputReadOnlyKHR
             | vkBU::eStorageBuffer | vkBU::eTransferDst | vkBU::eShaderDeviceAddress };
         vk::MemoryPropertyFlags properties{ vkMP::eHostVisible | vkMP::eHostCoherent };
@@ -719,8 +721,6 @@ private:
         asInstance.accelerationStructureReference = bottomLevelAS.buffer.deviceAddress;
         asInstance.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 
-        using vkBU = vk::BufferUsageFlagBits;
-        using vkMP = vk::MemoryPropertyFlagBits;
         Buffer instancesBuffer;
         instancesBuffer.create(*device, sizeof(vk::AccelerationStructureInstanceKHR),
                                vkBU::eAccelerationStructureBuildInputReadOnlyKHR
@@ -812,6 +812,51 @@ private:
             throw std::runtime_error("failed to create ray tracing pipeline.");
         }
         std::cout << "created raytracing pipeline\n";
+    }
+
+    void createShaderBindingTable()
+    {
+        // Get Ray Tracing Properties
+        auto rtProperties = physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
+            vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>()
+            .get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+
+        // Calculate SBT size
+        uint32_t handleSize = rtProperties.shaderGroupHandleSize;
+        size_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
+        size_t groupCount = shaderGroups.size();
+        size_t sbtSize = groupCount * handleSizeAligned;
+
+        // Get shader group handles
+        std::vector<uint8_t> shaderHandleStorage(sbtSize);
+        auto res = device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize,
+                                                              shaderHandleStorage.data());
+        if (res != vk::Result::eSuccess) {
+            throw std::runtime_error("failed to get ray tracing shader group handles.");
+        }
+
+        vk::BufferUsageFlags usage = vkBU::eShaderBindingTableKHR
+            | vkBU::eTransferSrc | vkBU::eShaderDeviceAddress;
+        vk::MemoryPropertyFlags properties = vkMP::eHostVisible | vkMP::eHostCoherent;
+
+        raygenSBT.create(*device, handleSize, usage);
+        raygenSBT.bindMemory(physicalDevice, properties);
+        raygenSBT.fillData(shaderHandleStorage.data() + 0 * handleSizeAligned);
+
+        missSBT.create(*device, handleSize, usage);
+        missSBT.bindMemory(physicalDevice, properties);
+        missSBT.fillData(shaderHandleStorage.data() + 1 * handleSizeAligned);
+
+        hitSBT.create(*device, handleSize, usage);
+        hitSBT.bindMemory(physicalDevice, properties);
+        hitSBT.fillData(shaderHandleStorage.data() + 2 * handleSizeAligned);
+
+        std::cout << "created shader binding table\n";
+    }
+
+    void createDescriptorSets()
+    {
+
     }
 };
 
