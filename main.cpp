@@ -1,5 +1,6 @@
 
 #include <set>
+#include <fstream>
 #include <iostream>
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
@@ -172,6 +173,24 @@ vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities)
     return actualExtent;
 }
 
+std::vector<char> readFile(const std::string& filename)
+{
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+    if (!file.is_open()) {
+        throw std::runtime_error("failed to open file!");
+    }
+
+    size_t fileSize = (size_t)file.tellg();
+    std::vector<char> buffer(fileSize);
+
+    file.seekg(0);
+    file.read(buffer.data(), fileSize);
+
+    file.close();
+
+    return buffer;
+}
 
 // ----------------------------------------------------------------------------------------------------------
 // Structs
@@ -392,6 +411,10 @@ private:
     AccelerationStructure bottomLevelAS;
     AccelerationStructure topLevelAS;
 
+    std::vector<vk::UniqueShaderModule> shaderModules;
+    std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
+    std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
+
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
@@ -422,8 +445,7 @@ private:
         createMeshBuffers();
         createBottomLevelAS();
         createTopLevelAS();
-
-        //loadShaders();
+        loadShaders();
 
         //createDescSets();
 
@@ -719,6 +741,43 @@ private:
         submitCommandBuffer(*commandBuffer);
 
         std::cout << "created top level as\n";
+    }
+
+    void loadShaders()
+    {
+        const uint32_t shaderIndexRaygen = 0;
+        const uint32_t shaderIndexMiss = 1;
+        const uint32_t shaderIndexClosestHit = 2;
+
+        shaderModules.push_back(createShaderModule("shaders/raygen.rgen.spv"));
+        shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eRaygenKHR,
+                               *shaderModules.back(), "main" });
+        shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
+                               shaderIndexRaygen, VK_SHADER_UNUSED_KHR,
+                               VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+
+        shaderModules.push_back(createShaderModule("shaders/miss.rmiss.spv"));
+        shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eMissKHR,
+                               *shaderModules.back(), "main" });
+        shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
+                               shaderIndexMiss, VK_SHADER_UNUSED_KHR,
+                               VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+
+        shaderModules.push_back(createShaderModule("shaders/closesthit.rchit.spv"));
+        shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR,
+                               *shaderModules.back(), "main" });
+        shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
+                               VK_SHADER_UNUSED_KHR, shaderIndexClosestHit,
+                               VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+
+        std::cout << "loaded shaders\n";
+    }
+
+    vk::UniqueShaderModule createShaderModule(const std::string& filename)
+    {
+        const std::vector<char> code = readFile(filename);
+        return device->createShaderModuleUnique({ {}, code.size(),
+                                                reinterpret_cast<const uint32_t*>(code.data()) });
     }
 
 };
