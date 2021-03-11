@@ -285,8 +285,7 @@ struct Image
             .setImage(*image)
             .setViewType(vk::ImageViewType::e2D)
             .setFormat(format)
-            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 })
-        );
+            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 }));
     }
 };
 
@@ -380,9 +379,13 @@ private:
     vk::UniqueInstance instance;
     vk::UniqueDebugUtilsMessengerEXT messenger;
     vk::UniqueSurfaceKHR surface;
+
     vk::UniqueDevice device;
     vk::PhysicalDevice physicalDevice;
+    vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rtProperties;
+
     vk::UniqueCommandPool commandPool;
+    std::vector<vk::UniqueCommandBuffer> drawCommandBuffers;
 
     uint32_t graphicsFamily;
     uint32_t presentFamily;
@@ -456,9 +459,8 @@ private:
         createRayTracingPipeLine();
         createShaderBindingTable();
         createDescriptorSets();
+        buildCommandBuffers();
 
-        //pipeline = descSets->createRayTracingPipeline(*shaderManager, 1);
-        //shaderManager->initShaderBindingTable(*pipeline, 1, 1, 1);
         //swapChain->initDrawCommandBuffers(*pipeline, *descSets, *shaderManager, *storageImage);
     }
 
@@ -656,13 +658,13 @@ private:
         return commandBuffer;
     }
 
-    void submitCommandBuffer(vk::CommandBuffer& commandBuffer)
+    void submitCommandBuffer(vk::CommandBuffer& cmdBuf)
     {
-        commandBuffer.end();
+        cmdBuf.end();
 
         vk::UniqueFence fence = device->createFenceUnique({});
         vk::SubmitInfo submitInfo;
-        submitInfo.setCommandBuffers(commandBuffer);
+        submitInfo.setCommandBuffers(cmdBuf);
         graphicsQueue.submit(submitInfo, *fence);
         auto res = device->waitForFences(*fence, true, UINT64_MAX);
         assert(res == vk::Result::eSuccess);
@@ -820,7 +822,7 @@ private:
     void createShaderBindingTable()
     {
         // Get Ray Tracing Properties
-        auto rtProperties = physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
+        rtProperties = physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
             vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>()
             .get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 
@@ -859,6 +861,21 @@ private:
 
     void createDescriptorSets()
     {
+        createDescPool();
+
+        auto descriptorSets = device->allocateDescriptorSetsUnique(
+            vk::DescriptorSetAllocateInfo{}
+            .setDescriptorPool(*descPool)
+            .setSetLayouts(*descSetLayout));
+        descSet = std::move(descriptorSets.front());
+
+        updateDescSet();
+
+        std::cout << "created desc set\n";
+    }
+
+    void createDescPool()
+    {
         std::vector<vk::DescriptorPoolSize> poolSizes{
             {vk::DescriptorType::eAccelerationStructureKHR, 1},
             {vk::DescriptorType::eStorageImage, 1} };
@@ -868,13 +885,10 @@ private:
             .setPoolSizes(poolSizes)
             .setMaxSets(1)
             .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet));
+    }
 
-        auto descriptorSets = device->allocateDescriptorSetsUnique(
-            vk::DescriptorSetAllocateInfo{}
-            .setDescriptorPool(*descPool)
-            .setSetLayouts(*descSetLayout));
-        descSet = std::move(descriptorSets.front());
-
+    void updateDescSet()
+    {
         vk::WriteDescriptorSetAccelerationStructureKHR asDesc{ *topLevelAS.handle };
         vk::WriteDescriptorSet asWrite{};
         asWrite.setDstSet(*descSet);
@@ -894,9 +908,80 @@ private:
         imageWrite.setImageInfo(imageDesc);
 
         device->updateDescriptorSets({ asWrite, imageWrite }, nullptr);
-
-        std::cout << "created desc set\n";
     }
+
+    void buildCommandBuffers()
+    {
+        allocateDrawCommandBuffers();
+
+        for (int32_t i = 0; i < drawCommandBuffers.size(); ++i) {
+            drawCommandBuffers[i]->begin(vk::CommandBufferBeginInfo{});
+            drawCommandBuffers[i]->bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
+            drawCommandBuffers[i]->bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
+                                                      *pipelineLayout, 0, *descSet, nullptr);
+
+            traceRays(*drawCommandBuffers[i]);
+            copyStorageImage(*drawCommandBuffers[i], swapChainImages[i]);
+            drawCommandBuffers[i]->end();
+        }
+
+        std::cout << "builded command buffers\n";
+    }
+
+    void traceRays(vk::CommandBuffer& cmdBuf)
+    {
+        size_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
+
+        vk::StridedDeviceAddressRegionKHR raygenRegion{};
+        raygenRegion.setDeviceAddress(raygenSBT.deviceAddress);
+        raygenRegion.setStride(handleSizeAligned);
+        raygenRegion.setSize(handleSizeAligned);
+
+        vk::StridedDeviceAddressRegionKHR missRegion{};
+        missRegion.setDeviceAddress(missSBT.deviceAddress);
+        missRegion.setStride(handleSizeAligned);
+        missRegion.setSize(handleSizeAligned);
+
+        vk::StridedDeviceAddressRegionKHR hitRegion{};
+        hitRegion.setDeviceAddress(hitSBT.deviceAddress);
+        hitRegion.setStride(handleSizeAligned);
+        hitRegion.setSize(handleSizeAligned);
+
+        cmdBuf.traceRaysKHR(raygenRegion, missRegion, hitRegion, {},
+                            storageImage.extent.width, storageImage.extent.height, 1);
+    }
+
+    void copyStorageImage(vk::CommandBuffer& cmdBuf, vk::Image& swapChainImage)
+    {
+        transitionImageLayout(cmdBuf, *storageImage.image, vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eTransferSrcOptimal);
+        transitionImageLayout(cmdBuf, swapChainImage, vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eTransferDstOptimal);
+
+        vk::ImageCopy copyRegion{};
+        copyRegion.setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 });
+        copyRegion.setSrcOffset({ 0, 0, 0 });
+        copyRegion.setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 });
+        copyRegion.setDstOffset({ 0, 0, 0 });
+        copyRegion.setExtent({ storageImage.extent.width, storageImage.extent.height, 1 });
+        cmdBuf.copyImage(*storageImage.image, vk::ImageLayout::eTransferSrcOptimal,
+                         swapChainImage, vk::ImageLayout::eTransferDstOptimal, copyRegion);
+
+        transitionImageLayout(cmdBuf, *storageImage.image, vk::ImageLayout::eTransferSrcOptimal,
+                              vk::ImageLayout::eGeneral);
+        transitionImageLayout(cmdBuf, swapChainImage, vk::ImageLayout::eTransferDstOptimal,
+                              vk::ImageLayout::ePresentSrcKHR);
+    }
+
+    void allocateDrawCommandBuffers()
+    {
+        drawCommandBuffers = device->allocateCommandBuffersUnique(
+            vk::CommandBufferAllocateInfo{}
+            .setCommandPool(*commandPool)
+            .setLevel(vk::CommandBufferLevel::ePrimary)
+            .setCommandBufferCount(swapChainImages.size()));
+    }
+
 };
 
 
