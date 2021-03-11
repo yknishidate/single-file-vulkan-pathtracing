@@ -56,38 +56,37 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
     vk::PipelineStageFlags srcStageMask = vk::PipelineStageFlagBits::eAllCommands;
     vk::PipelineStageFlags dstStageMask = vk::PipelineStageFlagBits::eAllCommands;
 
-    vk::ImageMemoryBarrier imageMemoryBarrier{};
-    imageMemoryBarrier
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(image)
-        .setOldLayout(oldLayout)
-        .setNewLayout(newLayout)
-        .setSubresourceRange({ vk::ImageAspectFlagBits::eColor , 0, 1, 0, 1 });
+    vk::ImageMemoryBarrier barrier{};
+    barrier.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+    barrier.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
+    barrier.setImage(image);
+    barrier.setOldLayout(oldLayout);
+    barrier.setNewLayout(newLayout);
+    barrier.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 
     // Source layouts (old)
     using vkAF = vk::AccessFlagBits;
     switch (oldLayout) {
         case vk::ImageLayout::eUndefined:
-            imageMemoryBarrier.srcAccessMask = {};
+            barrier.srcAccessMask = {};
             break;
         case vk::ImageLayout::ePreinitialized:
-            imageMemoryBarrier.srcAccessMask = vkAF::eHostWrite;
+            barrier.srcAccessMask = vkAF::eHostWrite;
             break;
         case vk::ImageLayout::eColorAttachmentOptimal:
-            imageMemoryBarrier.srcAccessMask = vkAF::eColorAttachmentWrite;
+            barrier.srcAccessMask = vkAF::eColorAttachmentWrite;
             break;
         case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            imageMemoryBarrier.srcAccessMask = vkAF::eDepthStencilAttachmentWrite;
+            barrier.srcAccessMask = vkAF::eDepthStencilAttachmentWrite;
             break;
         case vk::ImageLayout::eTransferSrcOptimal:
-            imageMemoryBarrier.srcAccessMask = vkAF::eTransferRead;
+            barrier.srcAccessMask = vkAF::eTransferRead;
             break;
         case vk::ImageLayout::eTransferDstOptimal:
-            imageMemoryBarrier.srcAccessMask = vkAF::eTransferWrite;
+            barrier.srcAccessMask = vkAF::eTransferWrite;
             break;
         case vk::ImageLayout::eShaderReadOnlyOptimal:
-            imageMemoryBarrier.srcAccessMask = vkAF::eShaderRead;
+            barrier.srcAccessMask = vkAF::eShaderRead;
             break;
         default:
             break;
@@ -96,29 +95,28 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
     // Target layouts (new)
     switch (newLayout) {
         case vk::ImageLayout::eTransferDstOptimal:
-            imageMemoryBarrier.dstAccessMask = vkAF::eTransferWrite;
+            barrier.dstAccessMask = vkAF::eTransferWrite;
             break;
         case vk::ImageLayout::eTransferSrcOptimal:
-            imageMemoryBarrier.dstAccessMask = vkAF::eTransferRead;
+            barrier.dstAccessMask = vkAF::eTransferRead;
             break;
         case vk::ImageLayout::eColorAttachmentOptimal:
-            imageMemoryBarrier.dstAccessMask = vkAF::eColorAttachmentWrite;
+            barrier.dstAccessMask = vkAF::eColorAttachmentWrite;
             break;
         case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            imageMemoryBarrier.dstAccessMask = imageMemoryBarrier.dstAccessMask
-                | vkAF::eDepthStencilAttachmentWrite;
+            barrier.dstAccessMask = barrier.dstAccessMask | vkAF::eDepthStencilAttachmentWrite;
             break;
         case vk::ImageLayout::eShaderReadOnlyOptimal:
-            if (imageMemoryBarrier.srcAccessMask == vk::AccessFlags{}) {
-                imageMemoryBarrier.srcAccessMask = vkAF::eHostWrite | vkAF::eTransferWrite;
+            if (barrier.srcAccessMask == vk::AccessFlags{}) {
+                barrier.srcAccessMask = vkAF::eHostWrite | vkAF::eTransferWrite;
             }
-            imageMemoryBarrier.dstAccessMask = vkAF::eShaderRead;
+            barrier.dstAccessMask = vkAF::eShaderRead;
             break;
         default:
             break;
     }
 
-    cmdBuf.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, imageMemoryBarrier);
+    cmdBuf.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, barrier);
 }
 
 uint32_t findMemoryType(const vk::PhysicalDevice physicalDevice,
@@ -167,31 +165,27 @@ vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities)
     }
 
     vk::Extent2D actualExtent{ WIDTH, HEIGHT };
-    actualExtent.width = std::min(capabilities.maxImageExtent.width,
-                                  std::max(actualExtent.width,
-                                           capabilities.minImageExtent.width));
-    actualExtent.height = std::min(capabilities.maxImageExtent.height,
-                                   std::max(actualExtent.height,
-                                            capabilities.minImageExtent.height));
+    actualExtent.width = std::clamp(actualExtent.width,
+                                    capabilities.minImageExtent.width,
+                                    capabilities.maxImageExtent.width);
+    actualExtent.height = std::clamp(actualExtent.height,
+                                     capabilities.minImageExtent.height,
+                                     capabilities.maxImageExtent.height);
     return actualExtent;
 }
 
 std::vector<char> readFile(const std::string& filename)
 {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
     if (!file.is_open()) {
         throw std::runtime_error("failed to open file!");
     }
 
     size_t fileSize = (size_t)file.tellg();
     std::vector<char> buffer(fileSize);
-
     file.seekg(0);
     file.read(buffer.data(), fileSize);
-
     file.close();
-
     return buffer;
 }
 
@@ -264,17 +258,15 @@ struct Image
         this->extent = extent;
         this->format = format;
 
-        vk::ImageCreateInfo imageInfo;
-        imageInfo.imageType = vk::ImageType::e2D;
-        imageInfo.extent.width = extent.width;
-        imageInfo.extent.height = extent.height;
-        imageInfo.extent.depth = 1;
-        imageInfo.mipLevels = 1;
-        imageInfo.arrayLayers = 1;
-        imageInfo.format = format;
-        imageInfo.tiling = vk::ImageTiling::eOptimal;
-        imageInfo.usage = usage;
-        image = device.createImageUnique(imageInfo);
+        image = device.createImageUnique(
+            vk::ImageCreateInfo{}
+            .setImageType(vk::ImageType::e2D)
+            .setExtent({ extent.width, extent.height, 1 })
+            .setMipLevels(1)
+            .setArrayLayers(1)
+            .setFormat(format)
+            .setTiling(vk::ImageTiling::eOptimal)
+            .setUsage(usage));
     }
 
     void bindMemory(vk::PhysicalDevice physicalDevice)
@@ -288,9 +280,13 @@ struct Image
 
     void createImageView()
     {
-        vk::ImageViewCreateInfo viewInfo{ {}, *image, vk::ImageViewType::e2D, format };
-        viewInfo.subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 };
-        view = device.createImageViewUnique(viewInfo);
+        view = device.createImageViewUnique(
+            vk::ImageViewCreateInfo{}
+            .setImage(*image)
+            .setViewType(vk::ImageViewType::e2D)
+            .setFormat(format)
+            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 })
+        );
     }
 };
 
@@ -330,18 +326,18 @@ struct AccelerationStructure
         auto buildSizesInfo = device.getAccelerationStructureBuildSizesKHR(
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
         size = buildSizesInfo.accelerationStructureSize;
-        auto usage = vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress;
-        buffer.create(device, size, usage);
+        buffer.create(device, size,
+                      vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress);
         buffer.bindMemory(physicalDevice, vkMP::eDeviceLocal);
     }
 
     void create()
     {
-        vk::AccelerationStructureCreateInfoKHR createInfo;
-        createInfo.buffer = *buffer.buffer;
-        createInfo.size = size;
-        createInfo.type = type;
-        handle = device.createAccelerationStructureKHRUnique(createInfo);
+        handle = device.createAccelerationStructureKHRUnique(
+            vk::AccelerationStructureCreateInfoKHR{}
+            .setBuffer(*buffer.buffer)
+            .setSize(size)
+            .setType(type));
     }
 
     void build(vk::CommandBuffer commandBuffer)
@@ -422,6 +418,9 @@ private:
     Buffer raygenSBT;
     Buffer missSBT;
     Buffer hitSBT;
+
+    vk::UniqueDescriptorPool descPool;
+    vk::UniqueDescriptorSet descSet;
 
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -509,9 +508,10 @@ private:
         using vkDUMS = vk::DebugUtilsMessageSeverityFlagBitsEXT;
         using vkDUMT = vk::DebugUtilsMessageTypeFlagBitsEXT;
         messenger = instance->createDebugUtilsMessengerEXTUnique(
-            { {}, { vkDUMS::eWarning | vkDUMS::eError },
-            { vkDUMT::eGeneral | vkDUMT::ePerformance | vkDUMT::eValidation },
-            &debugUtilsMessengerCallback });
+            vk::DebugUtilsMessengerCreateInfoEXT{}
+            .setMessageSeverity(vkDUMS::eWarning | vkDUMS::eError)
+            .setMessageType(vkDUMT::eGeneral | vkDUMT::ePerformance | vkDUMT::eValidation)
+            .setPfnUserCallback(&debugUtilsMessengerCallback));
     }
 
     void createSurface()
@@ -528,7 +528,6 @@ private:
     void createDevice()
     {
         findQueueFamilies();
-
         std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
         std::set<uint32_t> uniqueQueueFamilies = { graphicsFamily, presentFamily };
 
@@ -566,7 +565,9 @@ private:
         presentQueue = device->getQueue(presentFamily, 0);
 
         commandPool = device->createCommandPoolUnique(
-            { vk::CommandPoolCreateFlagBits::eResetCommandBuffer, graphicsFamily });
+            vk::CommandPoolCreateInfo{}
+            .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
+            .setQueueFamilyIndex(graphicsFamily));
 
         std::cout << "created device\n";
     }
@@ -613,7 +614,6 @@ private:
         createInfo.imageExtent = extent;
         createInfo.imageArrayLayers = 1;
         createInfo.imageUsage = vkIUF::eColorAttachment | vkIUF::eTransferDst;
-        createInfo.imageSharingMode = vk::SharingMode::eExclusive;
         createInfo.preTransform = capabilities.currentTransform;
         createInfo.presentMode = presentMode;
         createInfo.clipped = true;
@@ -648,9 +648,10 @@ private:
 
     vk::UniqueCommandBuffer createCommandBuffer()
     {
-        vk::CommandBufferLevel level = vk::CommandBufferLevel::ePrimary;
+        vk::CommandBufferAllocateInfo allocInfo{ *commandPool,
+            vk::CommandBufferLevel::ePrimary, 1 };
         vk::UniqueCommandBuffer commandBuffer = std::move(
-            device->allocateCommandBuffersUnique({ *commandPool, level, 1 }).front());
+            device->allocateCommandBuffersUnique(allocInfo).front());
         commandBuffer->begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
         return commandBuffer;
     }
@@ -662,8 +663,8 @@ private:
         vk::UniqueFence fence = device->createFenceUnique({});
         vk::SubmitInfo submitInfo;
         submitInfo.setCommandBuffers(commandBuffer);
-        graphicsQueue.submit(submitInfo, fence.get());
-        auto res = device->waitForFences(fence.get(), true, UINT64_MAX);
+        graphicsQueue.submit(submitInfo, *fence);
+        auto res = device->waitForFences(*fence, true, UINT64_MAX);
         assert(res == vk::Result::eSuccess);
     }
 
@@ -682,22 +683,24 @@ private:
         indexBuffer.create(*device, indexBufferSize, usage);
         indexBuffer.bindMemory(physicalDevice, properties);
         indexBuffer.fillData(indices.data());
+
+        std::cout << "created mesh buffers\n";
     }
 
     void createBottomLevelAS()
     {
         vk::AccelerationStructureGeometryTrianglesDataKHR triangleData;
-        triangleData.vertexFormat = vk::Format::eR32G32B32Sfloat;
-        triangleData.vertexData = vertexBuffer.deviceAddress;
-        triangleData.vertexStride = sizeof(Vertex);
-        triangleData.maxVertex = vertices.size();
-        triangleData.indexType = vk::IndexType::eUint32;
-        triangleData.indexData = indexBuffer.deviceAddress;
+        triangleData.setVertexFormat(vk::Format::eR32G32B32Sfloat);
+        triangleData.setVertexData(vertexBuffer.deviceAddress);
+        triangleData.setVertexStride(sizeof(Vertex));
+        triangleData.setMaxVertex(vertices.size());
+        triangleData.setIndexType(vk::IndexType::eUint32);
+        triangleData.setIndexData(indexBuffer.deviceAddress);
 
         vk::AccelerationStructureGeometryKHR geometry;
-        geometry.geometryType = vk::GeometryTypeKHR::eTriangles;
-        geometry.geometry = { triangleData };
-        geometry.flags = vk::GeometryFlagBitsKHR::eOpaque;
+        geometry.setGeometryType(vk::GeometryTypeKHR::eTriangles);
+        geometry.setGeometry({ triangleData });
+        geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         uint32_t primitiveCount = indices.size() / 3;
         bottomLevelAS.createBuffer(*device, physicalDevice, geometry,
@@ -716,9 +719,9 @@ private:
                                                  0.0f, 1.0f, 0.0f, 0.0f,
                                                  0.0f, 0.0f, 1.0f, 0.0f };
         vk::AccelerationStructureInstanceKHR asInstance;
-        asInstance.transform = transformMatrix;
-        asInstance.mask = 0xFF;
-        asInstance.accelerationStructureReference = bottomLevelAS.buffer.deviceAddress;
+        asInstance.setTransform(transformMatrix);
+        asInstance.setMask(0xFF);
+        asInstance.setAccelerationStructureReference(bottomLevelAS.buffer.deviceAddress);
         asInstance.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 
         Buffer instancesBuffer;
@@ -729,13 +732,13 @@ private:
         instancesBuffer.fillData(&asInstance);
 
         vk::AccelerationStructureGeometryInstancesDataKHR instancesData;
-        instancesData.arrayOfPointers = false;
-        instancesData.data = instancesBuffer.deviceAddress;
+        instancesData.setArrayOfPointers(false);
+        instancesData.setData(instancesBuffer.deviceAddress);
 
         vk::AccelerationStructureGeometryKHR geometry;
-        geometry.geometryType = vk::GeometryTypeKHR::eInstances;
-        geometry.geometry = { instancesData };
-        geometry.flags = vk::GeometryFlagBitsKHR::eOpaque;
+        geometry.setGeometryType(vk::GeometryTypeKHR::eInstances);
+        geometry.setGeometry({ instancesData });
+        geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         uint32_t primitiveCount = 1;
         topLevelAS.createBuffer(*device, physicalDevice, geometry,
@@ -856,7 +859,43 @@ private:
 
     void createDescriptorSets()
     {
+        std::vector<vk::DescriptorPoolSize> poolSizes{
+            {vk::DescriptorType::eAccelerationStructureKHR, 1},
+            {vk::DescriptorType::eStorageImage, 1} };
 
+        descPool = device->createDescriptorPoolUnique(
+            vk::DescriptorPoolCreateInfo{}
+            .setPoolSizes(poolSizes)
+            .setMaxSets(1)
+            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet));
+
+        auto descriptorSets = device->allocateDescriptorSetsUnique(
+            vk::DescriptorSetAllocateInfo{}
+            .setDescriptorPool(*descPool)
+            .setSetLayouts(*descSetLayout));
+        descSet = std::move(descriptorSets.front());
+
+        vk::WriteDescriptorSetAccelerationStructureKHR asDesc{ *topLevelAS.handle };
+        vk::WriteDescriptorSet asWrite{};
+        asWrite.setDstSet(*descSet);
+        asWrite.setDstBinding(0);
+        asWrite.setDescriptorCount(1);
+        asWrite.setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR);
+        asWrite.setPNext(&asDesc);
+
+        vk::DescriptorImageInfo imageDesc{};
+        imageDesc.setImageView(*storageImage.view);
+        imageDesc.setImageLayout(vk::ImageLayout::eGeneral);
+
+        vk::WriteDescriptorSet imageWrite{};
+        imageWrite.setDstSet(*descSet);
+        imageWrite.setDescriptorType(vk::DescriptorType::eStorageImage);
+        imageWrite.setDstBinding(1);
+        imageWrite.setImageInfo(imageDesc);
+
+        device->updateDescriptorSets({ asWrite, imageWrite }, nullptr);
+
+        std::cout << "created desc set\n";
     }
 };
 
