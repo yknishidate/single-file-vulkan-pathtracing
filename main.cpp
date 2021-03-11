@@ -925,7 +925,7 @@ private:
             drawCommandBuffers[i]->end();
         }
 
-        std::cout << "builded command buffers\n";
+        std::cout << "built command buffers\n";
     }
 
     void traceRays(vk::CommandBuffer& cmdBuf)
