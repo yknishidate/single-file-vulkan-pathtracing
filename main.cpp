@@ -206,8 +206,8 @@ struct Buffer
 
     void bindMemory(vk::PhysicalDevice physicalDevice, vk::MemoryPropertyFlags properties)
     {
-        auto requirements = device.getBufferMemoryRequirements(*buffer);
-        auto memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits, properties);
+        vk::MemoryRequirements requirements = device.getBufferMemoryRequirements(*buffer);
+        uint32_t memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits, properties);
         vk::MemoryAllocateInfo allocInfo{ requirements.size, memoryTypeIndex };
 
         if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
@@ -262,9 +262,9 @@ struct Image
 
     void bindMemory(vk::PhysicalDevice physicalDevice)
     {
-        auto requirements = device.getImageMemoryRequirements(*image);
-        auto memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits,
-                                              vk::MemoryPropertyFlagBits::eDeviceLocal);
+        vk::MemoryRequirements requirements = device.getImageMemoryRequirements(*image);
+        uint32_t memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits,
+                                                  vk::MemoryPropertyFlagBits::eDeviceLocal);
         memory = device.allocateMemoryUnique({ requirements.size, memoryTypeIndex });
         device.bindImageMemory(*image, *memory, 0);
     }
@@ -313,7 +313,7 @@ struct AccelerationStructure
         buildGeometryInfo.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
         buildGeometryInfo.setGeometries(geometry);
 
-        auto buildSizesInfo = device.getAccelerationStructureBuildSizesKHR(
+        vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = device.getAccelerationStructureBuildSizesKHR(
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
         size = buildSizesInfo.accelerationStructureSize;
         buffer.create(device, size, vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress);
@@ -518,7 +518,7 @@ private:
     void createSurface()
     {
         VkSurfaceKHR _surface;
-        auto res = glfwCreateWindowSurface(VkInstance(*instance), window, nullptr, &_surface);
+        VkResult res = glfwCreateWindowSurface(VkInstance(*instance), window, nullptr, &_surface);
         if (res != VK_SUCCESS) {
             throw std::runtime_error("failed to create window surface!");
         }
@@ -638,7 +638,7 @@ private:
 
         // Set image layout
         storageImage.imageLayout = vk::ImageLayout::eGeneral;
-        auto cmdBuf = createCommandBuffer();
+        vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
         transitionImageLayout(*cmdBuf, *storageImage.image,
                               vk::ImageLayout::eUndefined, storageImage.imageLayout);
         submitCommandBuffer(*cmdBuf);
@@ -663,7 +663,7 @@ private:
         submitInfo.setCommandBuffers(cmdBuf);
         graphicsQueue.submit(submitInfo, *fence);
 
-        auto res = device->waitForFences(*fence, true, UINT64_MAX);
+        vk::Result res = device->waitForFences(*fence, true, UINT64_MAX);
         assert(res == vk::Result::eSuccess);
     }
 
@@ -705,7 +705,7 @@ private:
         bottomLevelAS.createBuffer(*device, physicalDevice, geometry,
                                    vk::AccelerationStructureTypeKHR::eBottomLevel, primitiveCount);
         bottomLevelAS.create();
-        auto cmdBuf = createCommandBuffer();
+        vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
         bottomLevelAS.build(*cmdBuf);
         submitCommandBuffer(*cmdBuf);
 
@@ -742,7 +742,7 @@ private:
         topLevelAS.createBuffer(*device, physicalDevice, geometry,
                                 vk::AccelerationStructureTypeKHR::eTopLevel, primitiveCount);
         topLevelAS.create();
-        auto cmdBuf = createCommandBuffer();
+        vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
         topLevelAS.build(*cmdBuf);
         submitCommandBuffer(*cmdBuf);
 
@@ -822,8 +822,8 @@ private:
 
         // Get shader group handles
         std::vector<uint8_t> shaderHandleStorage(sbtSize);
-        auto res = device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize,
-                                                              shaderHandleStorage.data());
+        vk::Result res = device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize,
+                                                                    shaderHandleStorage.data());
         if (res != vk::Result::eSuccess) {
             throw std::runtime_error("failed to get ray tracing shader group handles.");
         }
@@ -971,14 +971,7 @@ private:
     {
         device->waitForFences(inFlightFences[currentFrame], true, UINT64_MAX);
 
-        // Acquire next image
-        auto result = device->acquireNextImageKHR(*swapChain, UINT64_MAX, *imageAvailableSemaphores[currentFrame]);
-        uint32_t imageIndex;
-        if (result.result == vk::Result::eSuccess) {
-            imageIndex = result.value;
-        } else {
-            throw std::runtime_error("failed to acquire next image!");
-        }
+        uint32_t imageIndex = acquireNextImageIndex();
 
         // Wait for fence
         if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
@@ -1005,6 +998,15 @@ private:
             .setImageIndices(imageIndex));
 
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    }
+
+    uint32_t acquireNextImageIndex()
+    {
+        auto result = device->acquireNextImageKHR(*swapChain, UINT64_MAX, *imageAvailableSemaphores[currentFrame]);
+        if (result.result == vk::Result::eSuccess) {
+            return result.value;
+        }
+        throw std::runtime_error("failed to acquire next image!");
     }
 };
 
