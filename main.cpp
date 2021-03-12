@@ -1,6 +1,8 @@
 
 #include <set>
+#include <string>
 #include <fstream>
+#include <sstream>
 #include <iostream>
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
@@ -20,8 +22,8 @@ using vkMP = vk::MemoryPropertyFlagBits;
 // ----------------------------------------------------------------------------------------------------------
 // Globals
 // ----------------------------------------------------------------------------------------------------------
-constexpr int WIDTH = 800;
-constexpr int HEIGHT = 600;
+constexpr int WIDTH = 1024;
+constexpr int HEIGHT = 1024;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 #ifdef _DEBUG
 constexpr bool enableValidationLayers = true;
@@ -181,6 +183,22 @@ std::vector<char> readFile(const std::string& filename)
     return buffer;
 }
 
+std::vector<std::string> split(std::string& str, char separator)
+{
+    std::vector<std::string> list;
+    size_t offset = 0;
+    while (1) {
+        auto pos = str.find(separator, offset);
+        if (pos == std::string::npos) {
+            list.push_back(str.substr(offset));
+            break;
+        }
+        list.push_back(str.substr(offset, pos - offset));
+        offset = pos + 1;
+    }
+    return list;
+}
+
 // ----------------------------------------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------------------------------------
@@ -280,11 +298,19 @@ struct Image
     }
 };
 
+enum class Material : int
+{
+    White,
+    Red,
+    Green,
+    Light
+};
+
 struct Vertex
 {
     glm::vec3 pos;
-    glm::vec3 normal;
-    glm::vec4 color;
+    //glm::vec3 normal;
+    //Material material;
 };
 
 struct AccelerationStructure
@@ -393,10 +419,8 @@ private:
 
     Image storageImage;
 
-    std::vector<Vertex> vertices{ { {1.0f, 1.0f, 0.0f} },
-                                  { {-1.0f, 1.0f, 0.0f} },
-                                  { {0.0f, -1.0f, 0.0f} } };
-    std::vector<uint32_t> indices{ 0, 1, 2 };
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
     Buffer vertexBuffer;
     Buffer indexBuffer;
 
@@ -451,6 +475,7 @@ private:
         createDevice();
         createSwapChain();
         createStorageImage();
+        loadMesh();
         createMeshBuffers();
         createBottomLevelAS();
         createTopLevelAS();
@@ -665,6 +690,38 @@ private:
 
         vk::Result res = device->waitForFences(*fence, true, UINT64_MAX);
         assert(res == vk::Result::eSuccess);
+    }
+
+    void loadMesh()
+    {
+        std::ifstream file("assets/CornellBox.obj");
+        std::string line;
+        Material currentMaterial = Material::White;
+        while (std::getline(file, line)) {
+            std::vector<std::string> list = split(line, ' ');
+            if (list[0] == "v") {
+                vertices.push_back(Vertex{ glm::vec3{ stof(list[1]), -stof(list[2]), stof(list[3]) } });
+            }
+            if (list[0] == "usemtl") {
+                if (list[1] == "White") {
+                    currentMaterial = Material::White;
+                } else if (list[1] == "Red") {
+                    currentMaterial = Material::Red;
+                } else if (list[1] == "Green") {
+                    currentMaterial = Material::Green;
+                } else if (list[1] == "Light") {
+                    currentMaterial = Material::Light;
+                }
+            }
+            if (list[0] == "f") {
+                for (int i = 1; i <= 3; i++) {
+                    std::string vert = list[i];
+                    std::vector<std::string> vertAttrs = split(vert, '/');
+                    int vertIndex = stoi(vertAttrs[0]) - 1;
+                    indices.push_back(static_cast<uint32_t>(vertIndex));
+                }
+            }
+        }
     }
 
     void createMeshBuffers()
