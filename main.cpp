@@ -25,10 +25,11 @@ using vkMP = vk::MemoryPropertyFlagBits;
 // ----------------------------------------------------------------------------------------------------------
 constexpr int WIDTH = 800;
 constexpr int HEIGHT = 600;
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 #ifdef _DEBUG
-const bool enableValidationLayers = true;
+constexpr bool enableValidationLayers = true;
 #else
-const bool enableValidationLayers = false;
+constexpr bool enableValidationLayers = false;
 #endif
 std::vector<const char*> validationLayers;
 
@@ -362,6 +363,10 @@ public:
 
     ~Application()
     {
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            device->destroyFence(inFlightFences[i]);
+        }
+
         glfwDestroyWindow(window);
         glfwTerminate();
     }
@@ -425,6 +430,12 @@ private:
     vk::UniqueDescriptorPool descPool;
     vk::UniqueDescriptorSet descSet;
 
+    std::vector<vk::UniqueSemaphore> imageAvailableSemaphores;
+    std::vector<vk::UniqueSemaphore> renderFinishedSemaphores;
+    std::vector<vk::Fence> inFlightFences;
+    std::vector<vk::Fence> imagesInFlight;
+    size_t currentFrame = 0;
+
     const std::vector<const char*> requiredExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
@@ -460,15 +471,16 @@ private:
         createShaderBindingTable();
         createDescriptorSets();
         buildCommandBuffers();
-
-        //swapChain->initDrawCommandBuffers(*pipeline, *descSets, *shaderManager, *storageImage);
+        createSyncObjects();
     }
 
     void mainLoop()
     {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            drawFrame();
         }
+        device->waitIdle();
     }
 
     void createInstance()
@@ -982,6 +994,60 @@ private:
             .setCommandBufferCount(swapChainImages.size()));
     }
 
+    void createSyncObjects()
+    {
+        imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+        imagesInFlight.resize(swapChainImages.size());
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            imageAvailableSemaphores[i] = device->createSemaphoreUnique({});
+            renderFinishedSemaphores[i] = device->createSemaphoreUnique({});
+            inFlightFences[i] = device->createFence({ vk::FenceCreateFlagBits::eSignaled });
+        }
+    }
+
+    void drawFrame()
+    {
+        device->waitForFences(inFlightFences[currentFrame], true, std::numeric_limits<uint64_t>::max());
+
+        // Acquire next image
+        auto result = device->acquireNextImageKHR(swapChain.get(), UINT64_MAX,
+                                                  *imageAvailableSemaphores[currentFrame]);
+        uint32_t imageIndex;
+        if (result.result == vk::Result::eSuccess) {
+            imageIndex = result.value;
+        } else {
+            throw std::runtime_error("failed to acquire next image!");
+        }
+
+        // Wait for fence
+        if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
+            device->waitForFences(imagesInFlight[imageIndex], true, std::numeric_limits<uint64_t>::max());
+        }
+        imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+        device->resetFences(inFlightFences[currentFrame]);
+
+        // Submit draw command
+        vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };
+        graphicsQueue.submit(
+            vk::SubmitInfo{}
+            .setWaitSemaphores(*imageAvailableSemaphores[currentFrame])
+            .setWaitDstStageMask(waitStage)
+            .setCommandBuffers(*drawCommandBuffers[imageIndex])
+            .setSignalSemaphores(*renderFinishedSemaphores[currentFrame]),
+            inFlightFences[currentFrame]);
+
+        // Present image
+        graphicsQueue.presentKHR(
+            vk::PresentInfoKHR{}
+            .setWaitSemaphores(*renderFinishedSemaphores[currentFrame])
+            .setSwapchains(*swapChain)
+            .setImageIndices(imageIndex));
+
+        currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    }
 };
 
 
