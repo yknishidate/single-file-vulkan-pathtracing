@@ -145,8 +145,7 @@ vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormat
     throw std::runtime_error("found no suitable surface format");
 }
 
-vk::PresentModeKHR chooseSwapPresentMode(
-    const std::vector<vk::PresentModeKHR>& availablePresentModes)
+vk::PresentModeKHR chooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresentModes)
 {
     for (const auto& availablePresentMode : availablePresentModes) {
         if (availablePresentMode == vk::PresentModeKHR::eFifoRelaxed) {
@@ -263,8 +262,7 @@ struct Image
     vk::Format format;
     vk::ImageLayout imageLayout;
 
-    void create(vk::Device device, vk::Extent2D extent,
-                vk::Format format, vk::ImageUsageFlags usage)
+    void create(vk::Device device, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage)
     {
         this->device = device;
         this->extent = extent;
@@ -359,14 +357,13 @@ struct AccelerationStructure
     void build(vk::CommandBuffer cmdBuf)
     {
         Buffer scratchBuffer;
-        scratchBuffer.create(device, size, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress); // ? shaderDevice
+        scratchBuffer.create(device, size, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
         scratchBuffer.bindMemory(physicalDevice, vkMP::eDeviceLocal);
         buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
         buildGeometryInfo.setDstAccelerationStructure(*handle);
 
         vk::AccelerationStructureBuildRangeInfoKHR buildRangeInfo{ primitiveCount , 0, 0, 0 };
         cmdBuf.buildAccelerationStructuresKHR(buildGeometryInfo, &buildRangeInfo);
-        // ? get device address
     }
 };
 
@@ -506,7 +503,9 @@ private:
             glfwPollEvents();
             drawFrame();
             updateUniformBuffer();
-            std::cout << "frame: " << uniformData.frame << std::endl;
+            if (uniformData.frame % 10 == 0) {
+                std::cout << "frame: " << uniformData.frame << std::endl;
+            }
         }
         device->waitIdle();
     }
@@ -581,21 +580,14 @@ private:
 
         // Set physical device features
         vk::PhysicalDeviceFeatures deviceFeatures;
-        deviceFeatures.fillModeNonSolid = true;
-        deviceFeatures.samplerAnisotropy = true;
-
         vk::DeviceCreateInfo createInfo{ {}, queueCreateInfos, validationLayers, requiredExtensions, &deviceFeatures };
 
         // Create structure chain
-        // TODO: minimaize
-        vk::PhysicalDeviceDescriptorIndexingFeaturesEXT indexingFeatures;
-        indexingFeatures.runtimeDescriptorArray = true;
         vk::StructureChain<vk::DeviceCreateInfo,
-            vk::PhysicalDeviceDescriptorIndexingFeaturesEXT,
             vk::PhysicalDeviceBufferDeviceAddressFeatures,
             vk::PhysicalDeviceRayTracingPipelineFeaturesKHR,
             vk::PhysicalDeviceAccelerationStructureFeaturesKHR>
-            createInfoChain{ createInfo, indexingFeatures, {true}, {true}, {true} };
+            createInfoChain{ createInfo, {true}, {true}, {true} };
 
         device = physicalDevice.createDeviceUnique(createInfoChain.get<vk::DeviceCreateInfo>());
         VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
@@ -814,7 +806,7 @@ private:
 
         Buffer instancesBuffer;
         instancesBuffer.create(*device, sizeof(vk::AccelerationStructureInstanceKHR),
-                               vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eShaderDeviceAddress); // ? shaderDevice
+                               vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eShaderDeviceAddress);
         instancesBuffer.bindMemory(physicalDevice, vkMP::eHostVisible | vkMP::eHostCoherent);
         instancesBuffer.fillData(&asInstance);
 
