@@ -31,6 +31,7 @@ constexpr bool enableValidationLayers = true;
 constexpr bool enableValidationLayers = false;
 #endif
 std::vector<const char*> validationLayers;
+const std::string ASSET_PATH = "assets/CornellBox.obj";
 
 // ----------------------------------------------------------------------------------------------------------
 // Functuins
@@ -309,8 +310,6 @@ enum class Material : int
 struct Vertex
 {
     glm::vec3 pos;
-    //glm::vec3 normal;
-    //Material material;
 };
 
 struct AccelerationStructure
@@ -423,6 +422,9 @@ private:
     std::vector<uint32_t> indices;
     Buffer vertexBuffer;
     Buffer indexBuffer;
+
+    std::vector<Material> primitiveMaterials;
+    Buffer primitiveBuffer;
 
     AccelerationStructure bottomLevelAS;
     AccelerationStructure topLevelAS;
@@ -694,7 +696,7 @@ private:
 
     void loadMesh()
     {
-        std::ifstream file("assets/CornellBox.obj");
+        std::ifstream file(ASSET_PATH);
         std::string line;
         Material currentMaterial = Material::White;
         while (std::getline(file, line)) {
@@ -720,6 +722,7 @@ private:
                     int vertIndex = stoi(vertAttrs[0]) - 1;
                     indices.push_back(static_cast<uint32_t>(vertIndex));
                 }
+                primitiveMaterials.push_back(currentMaterial);
             }
         }
     }
@@ -727,7 +730,7 @@ private:
     void createMeshBuffers()
     {
         vk::BufferUsageFlags usage{ vkBU::eAccelerationStructureBuildInputReadOnlyKHR
-            | vkBU::eStorageBuffer | vkBU::eTransferDst | vkBU::eShaderDeviceAddress };
+            | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress };
         vk::MemoryPropertyFlags properties{ vkMP::eHostVisible | vkMP::eHostCoherent };
 
         uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
@@ -740,6 +743,11 @@ private:
         indexBuffer.bindMemory(physicalDevice, properties);
         indexBuffer.fillData(indices.data());
 
+        uint64_t primitiveBufferSize = primitiveMaterials.size() * sizeof(int);
+        primitiveBuffer.create(*device, primitiveBufferSize, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
+        primitiveBuffer.bindMemory(physicalDevice, properties);
+        primitiveBuffer.fillData(primitiveMaterials.data());
+        std::cout << primitiveMaterials.size() << std::endl;
         std::cout << "created mesh buffers\n";
     }
 
@@ -839,12 +847,13 @@ private:
     void createRayTracingPipeLine()
     {
         std::vector<vk::DescriptorSetLayoutBinding> bindings;
-        // Binding = 0 : TLAS
-        bindings.push_back({ 0, vk::DescriptorType::eAccelerationStructureKHR,
-                           1, vk::ShaderStageFlagBits::eRaygenKHR });
-        // Binding = 1 : Storage image
-        bindings.push_back({ 1, vk::DescriptorType::eStorageImage,
-                           1, vk::ShaderStageFlagBits::eRaygenKHR });
+        using vkDT = vk::DescriptorType;
+        using vkSS = vk::ShaderStageFlagBits;
+        bindings.push_back({ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }); // Binding = 0 : TLAS
+        bindings.push_back({ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
+        bindings.push_back({ 2, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
+        bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
+        bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Materials
 
         // Create layouts
         descSetLayout = device->createDescriptorSetLayoutUnique({ {}, bindings });
@@ -916,7 +925,8 @@ private:
     {
         std::vector<vk::DescriptorPoolSize> poolSizes{
             {vk::DescriptorType::eAccelerationStructureKHR, 1},
-            {vk::DescriptorType::eStorageImage, 1} };
+            {vk::DescriptorType::eStorageImage, 1},
+            {vk::DescriptorType::eStorageBuffer, 3} };
 
         descPool = device->createDescriptorPoolUnique(
             vk::DescriptorPoolCreateInfo{}
@@ -927,22 +937,47 @@ private:
 
     void updateDescSet()
     {
-        vk::WriteDescriptorSetAccelerationStructureKHR asDesc{ *topLevelAS.handle };
+        vk::WriteDescriptorSetAccelerationStructureKHR asInfo{ *topLevelAS.handle };
         vk::WriteDescriptorSet asWrite{};
         asWrite.setDstSet(*descSet);
-        asWrite.setDstBinding(0);
-        asWrite.setDescriptorCount(1);
         asWrite.setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR);
-        asWrite.setPNext(&asDesc);
+        asWrite.setDescriptorCount(1);
+        asWrite.setDstBinding(0);
+        asWrite.setPNext(&asInfo);
 
-        vk::DescriptorImageInfo imageDesc{ {}, *storageImage.view, vk::ImageLayout::eGeneral };
+        vk::DescriptorImageInfo imageInfo{ {}, *storageImage.view, vk::ImageLayout::eGeneral };
         vk::WriteDescriptorSet imageWrite{};
         imageWrite.setDstSet(*descSet);
         imageWrite.setDescriptorType(vk::DescriptorType::eStorageImage);
+        imageWrite.setDescriptorCount(1);
         imageWrite.setDstBinding(1);
-        imageWrite.setImageInfo(imageDesc);
+        imageWrite.setImageInfo(imageInfo);
 
-        device->updateDescriptorSets({ asWrite, imageWrite }, nullptr);
+        vk::DescriptorBufferInfo vertexBufferInfo{ *vertexBuffer.buffer, 0, vertexBuffer.size };
+        vk::WriteDescriptorSet vertexBufferWrite{};
+        vertexBufferWrite.setDstSet(*descSet);
+        vertexBufferWrite.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+        vertexBufferWrite.setDescriptorCount(1);
+        vertexBufferWrite.setDstBinding(2);
+        vertexBufferWrite.setBufferInfo(vertexBufferInfo);
+
+        vk::DescriptorBufferInfo indexBufferInfo{ *indexBuffer.buffer, 0, indexBuffer.size };
+        vk::WriteDescriptorSet indexBufferWrite{};
+        indexBufferWrite.setDstSet(*descSet);
+        indexBufferWrite.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+        indexBufferWrite.setDescriptorCount(1);
+        indexBufferWrite.setDstBinding(3);
+        indexBufferWrite.setBufferInfo(indexBufferInfo);
+
+        vk::DescriptorBufferInfo primBufferInfo{ *primitiveBuffer.buffer, 0, primitiveBuffer.size };
+        vk::WriteDescriptorSet primBufferWrite{};
+        primBufferWrite.setDstSet(*descSet);
+        primBufferWrite.setDescriptorType(vk::DescriptorType::eStorageBuffer);
+        primBufferWrite.setDescriptorCount(1);
+        primBufferWrite.setDstBinding(4);
+        primBufferWrite.setBufferInfo(primBufferInfo);
+
+        device->updateDescriptorSets({ asWrite, imageWrite, vertexBufferWrite, indexBufferWrite, primBufferWrite }, nullptr);
     }
 
     void buildCommandBuffers()
