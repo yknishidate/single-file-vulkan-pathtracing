@@ -246,7 +246,9 @@ struct Buffer
 
     void fillData(void* data)
     {
-        mapped = device.mapMemory(*memory, 0, size);
+        if (!mapped) {
+            mapped = device.mapMemory(*memory, 0, size);
+        }
         memcpy(mapped, data, static_cast<size_t>(size));
     }
 };
@@ -368,6 +370,11 @@ struct AccelerationStructure
     }
 };
 
+struct UniformData
+{
+    int frame = 0;
+};
+
 // ----------------------------------------------------------------------------------------------------------
 // Application
 // ----------------------------------------------------------------------------------------------------------
@@ -450,6 +457,9 @@ private:
     std::vector<vk::Fence> imagesInFlight;
     size_t currentFrame = 0;
 
+    UniformData uniformData;
+    Buffer uniformBuffer;
+
     const std::vector<const char*> requiredExtensions{
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
@@ -479,6 +489,7 @@ private:
         createStorageImage();
         loadMesh();
         createMeshBuffers();
+        createUniformBuffer();
         createBottomLevelAS();
         createTopLevelAS();
         loadShaders();
@@ -494,6 +505,8 @@ private:
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             drawFrame();
+            updateUniformBuffer();
+            std::cout << "frame: " << uniformData.frame << std::endl;
         }
         device->waitIdle();
     }
@@ -581,9 +594,8 @@ private:
             vk::PhysicalDeviceDescriptorIndexingFeaturesEXT,
             vk::PhysicalDeviceBufferDeviceAddressFeatures,
             vk::PhysicalDeviceRayTracingPipelineFeaturesKHR,
-            vk::PhysicalDeviceAccelerationStructureFeaturesKHR,
-            vk::PhysicalDeviceShaderClockFeaturesKHR>
-            createInfoChain{ createInfo, indexingFeatures, {true}, {true}, {true}, {true, true} };
+            vk::PhysicalDeviceAccelerationStructureFeaturesKHR>
+            createInfoChain{ createInfo, indexingFeatures, {true}, {true}, {true} };
 
         device = physicalDevice.createDeviceUnique(createInfoChain.get<vk::DeviceCreateInfo>());
         VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
@@ -747,8 +759,20 @@ private:
         primitiveBuffer.create(*device, primitiveBufferSize, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
         primitiveBuffer.bindMemory(physicalDevice, properties);
         primitiveBuffer.fillData(primitiveMaterials.data());
-        std::cout << primitiveMaterials.size() << std::endl;
         std::cout << "created mesh buffers\n";
+    }
+
+    void createUniformBuffer()
+    {
+        uniformBuffer.create(*device, sizeof(UniformData), vkBU::eUniformBuffer);
+        uniformBuffer.bindMemory(physicalDevice, vkMP::eHostVisible | vkMP::eHostCoherent);
+        updateUniformBuffer();
+    }
+
+    void updateUniformBuffer()
+    {
+        uniformData.frame += 1;
+        uniformBuffer.fillData(&uniformData);
     }
 
     void createBottomLevelAS()
@@ -854,6 +878,7 @@ private:
         bindings.push_back({ 2, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
         bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
         bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Materials
+        bindings.push_back({ 5, vkDT::eUniformBuffer, 1, vkSS::eRaygenKHR });            // Binding = 5 : Uniform data
 
         // Create layouts
         descSetLayout = device->createDescriptorSetLayoutUnique({ {}, bindings });
@@ -926,7 +951,8 @@ private:
         std::vector<vk::DescriptorPoolSize> poolSizes{
             {vk::DescriptorType::eAccelerationStructureKHR, 1},
             {vk::DescriptorType::eStorageImage, 1},
-            {vk::DescriptorType::eStorageBuffer, 3} };
+            {vk::DescriptorType::eStorageBuffer, 3},
+            {vk::DescriptorType::eUniformBuffer, 1} };
 
         descPool = device->createDescriptorPoolUnique(
             vk::DescriptorPoolCreateInfo{}
@@ -937,6 +963,8 @@ private:
 
     void updateDescSet()
     {
+        std::vector<vk::WriteDescriptorSet> writeDescSets;
+
         vk::WriteDescriptorSetAccelerationStructureKHR asInfo{ *topLevelAS.handle };
         vk::WriteDescriptorSet asWrite{};
         asWrite.setDstSet(*descSet);
@@ -944,6 +972,7 @@ private:
         asWrite.setDescriptorCount(1);
         asWrite.setDstBinding(0);
         asWrite.setPNext(&asInfo);
+        writeDescSets.push_back(asWrite);
 
         vk::DescriptorImageInfo imageInfo{ {}, *storageImage.view, vk::ImageLayout::eGeneral };
         vk::WriteDescriptorSet imageWrite{};
@@ -952,6 +981,7 @@ private:
         imageWrite.setDescriptorCount(1);
         imageWrite.setDstBinding(1);
         imageWrite.setImageInfo(imageInfo);
+        writeDescSets.push_back(imageWrite);
 
         vk::DescriptorBufferInfo vertexBufferInfo{ *vertexBuffer.buffer, 0, vertexBuffer.size };
         vk::WriteDescriptorSet vertexBufferWrite{};
@@ -960,6 +990,7 @@ private:
         vertexBufferWrite.setDescriptorCount(1);
         vertexBufferWrite.setDstBinding(2);
         vertexBufferWrite.setBufferInfo(vertexBufferInfo);
+        writeDescSets.push_back(vertexBufferWrite);
 
         vk::DescriptorBufferInfo indexBufferInfo{ *indexBuffer.buffer, 0, indexBuffer.size };
         vk::WriteDescriptorSet indexBufferWrite{};
@@ -968,6 +999,7 @@ private:
         indexBufferWrite.setDescriptorCount(1);
         indexBufferWrite.setDstBinding(3);
         indexBufferWrite.setBufferInfo(indexBufferInfo);
+        writeDescSets.push_back(indexBufferWrite);
 
         vk::DescriptorBufferInfo primBufferInfo{ *primitiveBuffer.buffer, 0, primitiveBuffer.size };
         vk::WriteDescriptorSet primBufferWrite{};
@@ -976,8 +1008,18 @@ private:
         primBufferWrite.setDescriptorCount(1);
         primBufferWrite.setDstBinding(4);
         primBufferWrite.setBufferInfo(primBufferInfo);
+        writeDescSets.push_back(primBufferWrite);
 
-        device->updateDescriptorSets({ asWrite, imageWrite, vertexBufferWrite, indexBufferWrite, primBufferWrite }, nullptr);
+        vk::DescriptorBufferInfo uniformBufferInfo{ *uniformBuffer.buffer, 0, uniformBuffer.size };
+        vk::WriteDescriptorSet uniformBufferWrite{};
+        uniformBufferWrite.setDstSet(*descSet);
+        uniformBufferWrite.setDescriptorType(vk::DescriptorType::eUniformBuffer);
+        uniformBufferWrite.setDescriptorCount(1);
+        uniformBufferWrite.setDstBinding(5);
+        uniformBufferWrite.setBufferInfo(uniformBufferInfo);
+        writeDescSets.push_back(uniformBufferWrite);
+
+        device->updateDescriptorSets(writeDescSets, nullptr);
     }
 
     void buildCommandBuffers()
