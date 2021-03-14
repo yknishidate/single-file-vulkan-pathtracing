@@ -246,6 +246,11 @@ struct Buffer
         }
         memcpy(mapped, data, static_cast<size_t>(size));
     }
+
+    vk::DescriptorBufferInfo createDescInfo()
+    {
+        return vk::DescriptorBufferInfo{ *buffer, 0, size };
+    }
 };
 
 struct Image
@@ -963,43 +968,24 @@ private:
         imageWrite.setImageInfo(imageInfo);
         writeDescSets.push_back(imageWrite);
 
-        vk::DescriptorBufferInfo vertexBufferInfo{ *vertexBuffer.buffer, 0, vertexBuffer.size };
-        vk::WriteDescriptorSet vertexBufferWrite{};
-        vertexBufferWrite.setDstSet(*descSet);
-        vertexBufferWrite.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        vertexBufferWrite.setDescriptorCount(1);
-        vertexBufferWrite.setDstBinding(2);
-        vertexBufferWrite.setBufferInfo(vertexBufferInfo);
-        writeDescSets.push_back(vertexBufferWrite);
-
-        vk::DescriptorBufferInfo indexBufferInfo{ *indexBuffer.buffer, 0, indexBuffer.size };
-        vk::WriteDescriptorSet indexBufferWrite{};
-        indexBufferWrite.setDstSet(*descSet);
-        indexBufferWrite.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        indexBufferWrite.setDescriptorCount(1);
-        indexBufferWrite.setDstBinding(3);
-        indexBufferWrite.setBufferInfo(indexBufferInfo);
-        writeDescSets.push_back(indexBufferWrite);
-
-        vk::DescriptorBufferInfo primBufferInfo{ *primitiveBuffer.buffer, 0, primitiveBuffer.size };
-        vk::WriteDescriptorSet primBufferWrite{};
-        primBufferWrite.setDstSet(*descSet);
-        primBufferWrite.setDescriptorType(vk::DescriptorType::eStorageBuffer);
-        primBufferWrite.setDescriptorCount(1);
-        primBufferWrite.setDstBinding(4);
-        primBufferWrite.setBufferInfo(primBufferInfo);
-        writeDescSets.push_back(primBufferWrite);
-
-        vk::DescriptorBufferInfo uniformBufferInfo{ *uniformBuffer.buffer, 0, uniformBuffer.size };
-        vk::WriteDescriptorSet uniformBufferWrite{};
-        uniformBufferWrite.setDstSet(*descSet);
-        uniformBufferWrite.setDescriptorType(vk::DescriptorType::eUniformBuffer);
-        uniformBufferWrite.setDescriptorCount(1);
-        uniformBufferWrite.setDstBinding(5);
-        uniformBufferWrite.setBufferInfo(uniformBufferInfo);
-        writeDescSets.push_back(uniformBufferWrite);
+        using vkDT = vk::DescriptorType;
+        writeDescSets.push_back(createBufferWrite(vertexBuffer.createDescInfo(), vkDT::eStorageBuffer, 2));
+        writeDescSets.push_back(createBufferWrite(indexBuffer.createDescInfo(), vkDT::eStorageBuffer, 3));
+        writeDescSets.push_back(createBufferWrite(primitiveBuffer.createDescInfo(), vkDT::eStorageBuffer, 4));
+        writeDescSets.push_back(createBufferWrite(uniformBuffer.createDescInfo(), vkDT::eUniformBuffer, 5));
 
         device->updateDescriptorSets(writeDescSets, nullptr);
+    }
+
+    vk::WriteDescriptorSet createBufferWrite(vk::DescriptorBufferInfo bufferInfo, vk::DescriptorType type, uint32_t binding)
+    {
+        vk::WriteDescriptorSet bufferWrite{};
+        bufferWrite.setDstSet(*descSet);
+        bufferWrite.setDescriptorType(type);
+        bufferWrite.setDescriptorCount(1);
+        bufferWrite.setDstBinding(binding);
+        bufferWrite.setBufferInfo(bufferInfo);
+        return bufferWrite;
     }
 
     void buildCommandBuffers()
