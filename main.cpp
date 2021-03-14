@@ -599,7 +599,6 @@ private:
             vk::CommandPoolCreateInfo{}
             .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
             .setQueueFamilyIndex(graphicsFamily));
-        std::cout << "created device\n";
     }
 
     void findQueueFamilies()
@@ -655,7 +654,6 @@ private:
         }
         swapChain = device->createSwapchainKHRUnique(createInfo);
         swapChainImages = device->getSwapchainImagesKHR(*swapChain);
-        std::cout << "created swapchain\n";
     }
 
     void createStorageImage()
@@ -671,7 +669,6 @@ private:
         transitionImageLayout(*cmdBuf, *storageImage.image,
                               vk::ImageLayout::eUndefined, storageImage.imageLayout);
         submitCommandBuffer(*cmdBuf);
-        std::cout << "created storage image\n";
     }
 
     vk::UniqueCommandBuffer createCommandBuffer()
@@ -742,7 +739,6 @@ private:
         primitiveBuffer.create(*device, primitiveBufferSize, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
         primitiveBuffer.bindMemory(physicalDevice, properties);
         primitiveBuffer.fillData(primitiveMaterials.data());
-        std::cout << "created mesh buffers\n";
     }
 
     void createUniformBuffer()
@@ -780,7 +776,6 @@ private:
         vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
         bottomLevelAS.build(*cmdBuf);
         submitCommandBuffer(*cmdBuf);
-        std::cout << "created bottom level as\n";
     }
 
     void createTopLevelAS()
@@ -816,7 +811,6 @@ private:
         vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
         topLevelAS.build(*cmdBuf);
         submitCommandBuffer(*cmdBuf);
-        std::cout << "created top level as\n";
     }
 
     void loadShaders()
@@ -839,7 +833,6 @@ private:
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules.back(), "main" });
         shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
                                VK_SHADER_UNUSED_KHR, ClosestHitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
-        std::cout << "loaded shaders\n";
     }
 
     vk::UniqueShaderModule createShaderModule(const std::string& filename)
@@ -875,7 +868,6 @@ private:
         } else {
             throw std::runtime_error("failed to create ray tracing pipeline.");
         }
-        std::cout << "created raytracing pipeline\n";
     }
 
     void createShaderBindingTable()
@@ -912,7 +904,6 @@ private:
         hitSBT.create(*device, handleSize, usage);
         hitSBT.bindMemory(physicalDevice, properties);
         hitSBT.fillData(shaderHandleStorage.data() + 2 * handleSizeAligned);
-        std::cout << "created shader binding table\n";
     }
 
     void createDescriptorSets()
@@ -920,7 +911,6 @@ private:
         createDescPool();
         descSet = std::move(device->allocateDescriptorSetsUnique({ *descPool, *descSetLayout }).front());
         updateDescSet();
-        std::cout << "created desc set\n";
     }
 
     void createDescPool()
@@ -996,7 +986,6 @@ private:
             copyStorageImage(*drawCommandBuffers[i], swapChainImages[i]);
             drawCommandBuffers[i]->end();
         }
-        std::cout << "built command buffers\n";
     }
 
     void traceRays(vk::CommandBuffer& cmdBuf)
