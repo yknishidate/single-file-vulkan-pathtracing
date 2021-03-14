@@ -60,7 +60,6 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
     barrier.setNewLayout(newLayout);
     barrier.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 
-    // Source layouts (old)
     using vkAF = vk::AccessFlagBits;
     switch (oldLayout) {
         case vk::ImageLayout::eUndefined:
@@ -88,7 +87,6 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
             break;
     }
 
-    // Target layouts (new)
     switch (newLayout) {
         case vk::ImageLayout::eTransferDstOptimal:
             barrier.dstAccessMask = vkAF::eTransferWrite;
@@ -214,7 +212,6 @@ struct Buffer
         this->device = device;
         this->size = size;
         this->usage = usage;
-
         buffer = device.createBufferUnique({ {}, size, usage });
     }
 
@@ -307,10 +304,7 @@ struct Image
 
 enum class Material : int
 {
-    White,
-    Red,
-    Green,
-    Light
+    White, Red, Green, Light
 };
 
 struct Vertex
