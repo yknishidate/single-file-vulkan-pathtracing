@@ -13,8 +13,8 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include <glm/glm.hpp>
 
 using vkBU = vk::BufferUsageFlagBits;
+using vkIU = vk::ImageUsageFlagBits;
 using vkMP = vk::MemoryPropertyFlagBits;
-using vkIUF = vk::ImageUsageFlagBits;
 using vkDT = vk::DescriptorType;
 
 // ----------------------------------------------------------------------------------------------------------
@@ -635,7 +635,7 @@ private:
         createInfo.setImageColorSpace(surfaceFormat.colorSpace);
         createInfo.setImageExtent(extent);
         createInfo.setImageArrayLayers(1);
-        createInfo.setImageUsage(vkIUF::eTransferDst);
+        createInfo.setImageUsage(vkIU::eTransferDst);
         createInfo.setPreTransform(capabilities.currentTransform);
         createInfo.setPresentMode(presentMode);
         createInfo.setClipped(true);
@@ -651,7 +651,7 @@ private:
 
     void createStorageImage()
     {
-        storageImage.create(*device, extent, format, vkIUF::eStorage | vkIUF::eTransferSrc);
+        storageImage.create(*device, extent, format, vkIU::eStorage | vkIU::eTransferSrc);
         storageImage.bindMemory(physicalDevice);
         storageImage.createImageView();
 
