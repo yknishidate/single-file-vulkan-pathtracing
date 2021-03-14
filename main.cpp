@@ -298,6 +298,11 @@ struct Image
             .setFormat(format)
             .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 }));
     }
+
+    vk::DescriptorImageInfo createDescInfo()
+    {
+        return vk::DescriptorImageInfo{ {}, *view, imageLayout };
+    }
 };
 
 enum class Material : int
@@ -707,20 +712,14 @@ private:
                 vertices.push_back(Vertex{ glm::vec3{ stof(list[1]), -stof(list[2]), stof(list[3]) } });
             }
             if (list[0] == "usemtl") {
-                if (list[1] == "White") {
-                    currentMaterial = Material::White;
-                } else if (list[1] == "Red") {
-                    currentMaterial = Material::Red;
-                } else if (list[1] == "Green") {
-                    currentMaterial = Material::Green;
-                } else if (list[1] == "Light") {
-                    currentMaterial = Material::Light;
-                }
+                if (list[1] == "White") currentMaterial = Material::White;
+                if (list[1] == "Red")   currentMaterial = Material::Red;
+                if (list[1] == "Green") currentMaterial = Material::Green;
+                if (list[1] == "Light") currentMaterial = Material::Light;
             }
             if (list[0] == "f") {
                 for (int i = 1; i <= 3; i++) {
-                    std::string vert = list[i];
-                    std::vector<std::string> vertAttrs = split(vert, '/');
+                    std::vector<std::string> vertAttrs = split(list[i], '/');
                     int vertIndex = stoi(vertAttrs[0]) - 1;
                     indices.push_back(static_cast<uint32_t>(vertIndex));
                 }
@@ -867,7 +866,6 @@ private:
         bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Materials
         bindings.push_back({ 5, vkDT::eUniformBuffer, 1, vkSS::eRaygenKHR });            // Binding = 5 : Uniform data
 
-        // Create layouts
         descSetLayout = device->createDescriptorSetLayoutUnique({ {}, bindings });
         pipelineLayout = device->createPipelineLayoutUnique({ {}, *descSetLayout });
 
@@ -948,36 +946,40 @@ private:
 
     void updateDescSet()
     {
+        using vkDT = vk::DescriptorType;
         std::vector<vk::WriteDescriptorSet> writeDescSets;
 
         vk::WriteDescriptorSetAccelerationStructureKHR asInfo{ *topLevelAS.handle };
         vk::WriteDescriptorSet asWrite{};
         asWrite.setDstSet(*descSet);
-        asWrite.setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR);
+        asWrite.setDescriptorType(vkDT::eAccelerationStructureKHR);
         asWrite.setDescriptorCount(1);
         asWrite.setDstBinding(0);
         asWrite.setPNext(&asInfo);
         writeDescSets.push_back(asWrite);
 
-        vk::DescriptorImageInfo imageInfo{ {}, *storageImage.view, vk::ImageLayout::eGeneral };
-        vk::WriteDescriptorSet imageWrite{};
-        imageWrite.setDstSet(*descSet);
-        imageWrite.setDescriptorType(vk::DescriptorType::eStorageImage);
-        imageWrite.setDescriptorCount(1);
-        imageWrite.setDstBinding(1);
-        imageWrite.setImageInfo(imageInfo);
-        writeDescSets.push_back(imageWrite);
-
-        using vkDT = vk::DescriptorType;
+        writeDescSets.push_back(createImageWrite(storageImage.createDescInfo(), vkDT::eStorageImage, 1));
         writeDescSets.push_back(createBufferWrite(vertexBuffer.createDescInfo(), vkDT::eStorageBuffer, 2));
         writeDescSets.push_back(createBufferWrite(indexBuffer.createDescInfo(), vkDT::eStorageBuffer, 3));
         writeDescSets.push_back(createBufferWrite(primitiveBuffer.createDescInfo(), vkDT::eStorageBuffer, 4));
         writeDescSets.push_back(createBufferWrite(uniformBuffer.createDescInfo(), vkDT::eUniformBuffer, 5));
-
         device->updateDescriptorSets(writeDescSets, nullptr);
     }
 
-    vk::WriteDescriptorSet createBufferWrite(vk::DescriptorBufferInfo bufferInfo, vk::DescriptorType type, uint32_t binding)
+    vk::WriteDescriptorSet createImageWrite(vk::DescriptorImageInfo imageInfo, vk::DescriptorType type,
+                                            uint32_t binding)
+    {
+        vk::WriteDescriptorSet imageWrite{};
+        imageWrite.setDstSet(*descSet);
+        imageWrite.setDescriptorType(type);
+        imageWrite.setDescriptorCount(1);
+        imageWrite.setDstBinding(binding);
+        imageWrite.setImageInfo(imageInfo);
+        return imageWrite;
+    }
+
+    vk::WriteDescriptorSet createBufferWrite(vk::DescriptorBufferInfo bufferInfo, vk::DescriptorType type,
+                                             uint32_t binding)
     {
         vk::WriteDescriptorSet bufferWrite{};
         bufferWrite.setDstSet(*descSet);
@@ -1005,25 +1007,20 @@ private:
 
     void traceRays(vk::CommandBuffer& cmdBuf)
     {
-        size_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
-
-        vk::StridedDeviceAddressRegionKHR raygenRegion{};
-        raygenRegion.setDeviceAddress(raygenSBT.deviceAddress);
-        raygenRegion.setStride(handleSizeAligned);
-        raygenRegion.setSize(handleSizeAligned);
-
-        vk::StridedDeviceAddressRegionKHR missRegion{};
-        missRegion.setDeviceAddress(missSBT.deviceAddress);
-        missRegion.setStride(handleSizeAligned);
-        missRegion.setSize(handleSizeAligned);
-
-        vk::StridedDeviceAddressRegionKHR hitRegion{};
-        hitRegion.setDeviceAddress(hitSBT.deviceAddress);
-        hitRegion.setStride(handleSizeAligned);
-        hitRegion.setSize(handleSizeAligned);
-
+        vk::StridedDeviceAddressRegionKHR raygenRegion = createAddressRegion(raygenSBT.deviceAddress);
+        vk::StridedDeviceAddressRegionKHR missRegion = createAddressRegion(missSBT.deviceAddress);
+        vk::StridedDeviceAddressRegionKHR hitRegion = createAddressRegion(hitSBT.deviceAddress);
         cmdBuf.traceRaysKHR(raygenRegion, missRegion, hitRegion, {},
                             storageImage.extent.width, storageImage.extent.height, 1);
+    }
+
+    vk::StridedDeviceAddressRegionKHR createAddressRegion(vk::DeviceAddress deviceAddress)
+    {
+        vk::StridedDeviceAddressRegionKHR region{};
+        region.setDeviceAddress(deviceAddress);
+        region.setStride(rtProperties.shaderGroupHandleAlignment);
+        region.setSize(rtProperties.shaderGroupHandleAlignment);
+        return region;
     }
 
     void copyStorageImage(vk::CommandBuffer& cmdBuf, vk::Image& swapChainImage)
