@@ -595,7 +595,6 @@ private:
             vk::CommandPoolCreateInfo{}
             .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
             .setQueueFamilyIndex(graphicsFamily));
-
         std::cout << "created device\n";
     }
 
@@ -652,7 +651,6 @@ private:
         }
         swapChain = device->createSwapchainKHRUnique(createInfo);
         swapChainImages = device->getSwapchainImagesKHR(*swapChain);
-
         std::cout << "created swapchain\n";
     }
 
@@ -669,7 +667,6 @@ private:
         transitionImageLayout(*cmdBuf, *storageImage.image,
                               vk::ImageLayout::eUndefined, storageImage.imageLayout);
         submitCommandBuffer(*cmdBuf);
-
         std::cout << "created storage image\n";
     }
 
@@ -785,7 +782,6 @@ private:
         vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
         bottomLevelAS.build(*cmdBuf);
         submitCommandBuffer(*cmdBuf);
-
         std::cout << "created bottom level as\n";
     }
 
@@ -822,7 +818,6 @@ private:
         vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
         topLevelAS.build(*cmdBuf);
         submitCommandBuffer(*cmdBuf);
-
         std::cout << "created top level as\n";
     }
 
@@ -846,7 +841,6 @@ private:
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules.back(), "main" });
         shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
                                VK_SHADER_UNUSED_KHR, ClosestHitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
-
         std::cout << "loaded shaders\n";
     }
 
@@ -921,7 +915,6 @@ private:
         hitSBT.create(*device, handleSize, usage);
         hitSBT.bindMemory(physicalDevice, properties);
         hitSBT.fillData(shaderHandleStorage.data() + 2 * handleSizeAligned);
-
         std::cout << "created shader binding table\n";
     }
 
@@ -930,7 +923,6 @@ private:
         createDescPool();
         descSet = std::move(device->allocateDescriptorSetsUnique({ *descPool, *descSetLayout }).front());
         updateDescSet();
-
         std::cout << "created desc set\n";
     }
 
@@ -1022,7 +1014,6 @@ private:
             copyStorageImage(*drawCommandBuffers[i], swapChainImages[i]);
             drawCommandBuffers[i]->end();
         }
-
         std::cout << "built command buffers\n";
     }
 
@@ -1124,9 +1115,9 @@ private:
 
     uint32_t acquireNextImageIndex()
     {
-        auto result = device->acquireNextImageKHR(*swapChain, UINT64_MAX, *imageAvailableSemaphores[currentFrame]);
-        if (result.result == vk::Result::eSuccess) {
-            return result.value;
+        auto res = device->acquireNextImageKHR(*swapChain, UINT64_MAX, *imageAvailableSemaphores[currentFrame]);
+        if (res.result == vk::Result::eSuccess) {
+            return res.value;
         }
         throw std::runtime_error("failed to acquire next image!");
     }
