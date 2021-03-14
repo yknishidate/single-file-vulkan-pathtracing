@@ -14,6 +14,8 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 using vkBU = vk::BufferUsageFlagBits;
 using vkMP = vk::MemoryPropertyFlagBits;
+using vkIUF = vk::ImageUsageFlagBits;
+using vkDT = vk::DescriptorType;
 
 // ----------------------------------------------------------------------------------------------------------
 // Globals
@@ -109,7 +111,6 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
         default:
             break;
     }
-
     cmdBuf.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, barrier);
 }
 
@@ -514,8 +515,7 @@ private:
     {
         // Get GLFW extensions
         uint32_t glfwExtensionCount = 0;
-        const char** glfwExtensions;
-        glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+        const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
         std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
         // Setup DynamicLoader (see https://github.com/KhronosGroup/Vulkan-Hpp)
@@ -523,7 +523,6 @@ private:
         auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
         VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
-        // Add validation layer, extension
         if (enableValidationLayers) {
             validationLayers.push_back("VK_LAYER_KHRONOS_validation");
             extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -536,7 +535,6 @@ private:
         instance = vk::createInstanceUnique({ {}, &appInfo, validationLayers, extensions });
         VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
 
-        // Get first physical device
         physicalDevice = instance->enumeratePhysicalDevices().front();
         if (enableValidationLayers) {
             createDebugMessenger();
@@ -571,7 +569,6 @@ private:
         std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
         std::set<uint32_t> uniqueQueueFamilies = { graphicsFamily, presentFamily };
 
-        // Create queues
         float queuePriority = 1.0f;
         for (uint32_t queueFamily : uniqueQueueFamilies) {
             vk::DeviceQueueCreateInfo queueCreateInfo{ {}, queueFamily, 1, &queuePriority };
@@ -581,8 +578,6 @@ private:
         // Set physical device features
         vk::PhysicalDeviceFeatures deviceFeatures;
         vk::DeviceCreateInfo createInfo{ {}, queueCreateInfos, validationLayers, requiredExtensions, &deviceFeatures };
-
-        // Create structure chain
         vk::StructureChain<vk::DeviceCreateInfo,
             vk::PhysicalDeviceBufferDeviceAddressFeatures,
             vk::PhysicalDeviceRayTracingPipelineFeaturesKHR,
@@ -594,7 +589,6 @@ private:
 
         graphicsQueue = device->getQueue(graphicsFamily, 0);
         presentQueue = device->getQueue(presentFamily, 0);
-
         commandPool = device->createCommandPoolUnique(
             vk::CommandPoolCreateInfo{}
             .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
@@ -634,7 +628,6 @@ private:
         uint32_t imageCount = capabilities.minImageCount + 1;
 
         // Create swap chain
-        using vkIUF = vk::ImageUsageFlagBits;
         vk::SwapchainCreateInfoKHR createInfo{};
         createInfo.setSurface(*surface);
         createInfo.setMinImageCount(imageCount);
@@ -642,7 +635,7 @@ private:
         createInfo.setImageColorSpace(surfaceFormat.colorSpace);
         createInfo.setImageExtent(extent);
         createInfo.setImageArrayLayers(1);
-        createInfo.setImageUsage(vkIUF::eColorAttachment | vkIUF::eTransferDst);
+        createInfo.setImageUsage(vkIUF::eTransferDst);
         createInfo.setPreTransform(capabilities.currentTransform);
         createInfo.setPresentMode(presentMode);
         createInfo.setClipped(true);
@@ -658,7 +651,6 @@ private:
 
     void createStorageImage()
     {
-        using vkIUF = vk::ImageUsageFlagBits;
         storageImage.create(*device, extent, format, vkIUF::eStorage | vkIUF::eTransferSrc);
         storageImage.bindMemory(physicalDevice);
         storageImage.createImageView();
@@ -844,7 +836,6 @@ private:
     void createRayTracingPipeLine()
     {
         std::vector<vk::DescriptorSetLayoutBinding> bindings;
-        using vkDT = vk::DescriptorType;
         using vkSS = vk::ShaderStageFlagBits;
         bindings.push_back({ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }); // Binding = 0 : TLAS
         bindings.push_back({ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
@@ -915,11 +906,8 @@ private:
 
     void createDescPool()
     {
-        std::vector<vk::DescriptorPoolSize> poolSizes{
-            {vk::DescriptorType::eAccelerationStructureKHR, 1},
-            {vk::DescriptorType::eStorageImage, 1},
-            {vk::DescriptorType::eStorageBuffer, 3},
-            {vk::DescriptorType::eUniformBuffer, 1} };
+        std::vector<vk::DescriptorPoolSize> poolSizes{ {vkDT::eAccelerationStructureKHR, 1},
+            {vkDT::eStorageImage, 1}, {vkDT::eStorageBuffer, 3}, {vkDT::eUniformBuffer, 1} };
 
         descPool = device->createDescriptorPoolUnique(
             vk::DescriptorPoolCreateInfo{}
@@ -930,7 +918,6 @@ private:
 
     void updateDescSet()
     {
-        using vkDT = vk::DescriptorType;
         std::vector<vk::WriteDescriptorSet> writeDescSets;
 
         vk::WriteDescriptorSetAccelerationStructureKHR asInfo{ *topLevelAS.handle };
