@@ -27,7 +27,7 @@ Vertex unpack(uint index)
     uint offset = index * vertexSize;
     Vertex v;
     v.pos = vec3(vertices.v[offset +  0], vertices.v[offset +  1], vertices.v[offset + 2]);
-	return v;
+    return v;
 }
 
 vec3 calcNormal(Vertex v0, Vertex v1, Vertex v2)

@@ -88,8 +88,8 @@ vec3 sampleDirection(vec2 randVal, vec3 normal)
 
 void main()
 {
-	float tmin = 0.001;
-	float tmax = 10000.0;
+    float tmin = 0.001;
+    float tmax = 10000.0;
     uint maxDepth = 4;
     uint maxSamples = 8;
     vec3 color = vec3(0.0);
@@ -101,12 +101,12 @@ void main()
 
         // Calc ray
         const vec2 screenPos = vec2(gl_LaunchIDEXT.xy) + vec2(rand(seed), rand(seed));
-	    const vec2 inUV = screenPos / vec2(gl_LaunchSizeEXT.xy);
-	    vec2 d = inUV * 2.0 - 1.0;
+        const vec2 inUV = screenPos / vec2(gl_LaunchSizeEXT.xy);
+        vec2 d = inUV * 2.0 - 1.0;
 
-	    vec4 origin = vec4(0, 0, 5, 1);
-	    vec4 target = vec4(d.x, d.y, 2, 1) ;
-	    vec4 direction = vec4(normalize(target.xyz - origin.xyz), 0) ;
+        vec4 origin = vec4(0, 0, 5, 1);
+        vec4 target = vec4(d.x, d.y, 2, 1) ;
+        vec4 direction = vec4(normalize(target.xyz - origin.xyz), 0) ;
 
         payLoad.contribution = vec3(1.0);
         payLoad.done = false;
@@ -137,5 +137,5 @@ void main()
 
     vec4 oldColor = imageLoad(image, ivec2(gl_LaunchIDEXT.xy));
     vec4 newColor = (oldColor * uniformData.frame + vec4(color, 0.0)) / float(uniformData.frame + 1);
-	imageStore(image, ivec2(gl_LaunchIDEXT.xy), newColor);
+    imageStore(image, ivec2(gl_LaunchIDEXT.xy), newColor);
 }
