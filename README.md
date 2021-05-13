@@ -6,11 +6,10 @@ Minimal pathtracer using Vulkan RayTracing
 
 # Environment
 
--   Vulkan SDK 1.2.162.0
+-   Vulkan SDK 1.2.162.0 or later
 -   GPU / Driver that support Vulkan Ray Tracing
 -   C++17
 -   GLFW
--   GLM
 
 ## Setup
 
