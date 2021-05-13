@@ -793,7 +793,7 @@ private:
     {
         const uint32_t raygenIndex = 0;
         const uint32_t missIndex = 1;
-        const uint32_t ClosestHitIndex = 2;
+        const uint32_t closestHitIndex = 2;
 
         shaderModules.push_back(createShaderModule("shaders/raygen.rgen.spv"));
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules.back(), "main" });
@@ -808,7 +808,7 @@ private:
         shaderModules.push_back(createShaderModule("shaders/closesthit.rchit.spv"));
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules.back(), "main" });
         shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
-                               VK_SHADER_UNUSED_KHR, ClosestHitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+                               VK_SHADER_UNUSED_KHR, closestHitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
     }
 
     vk::UniqueShaderModule createShaderModule(const std::string& filename)
