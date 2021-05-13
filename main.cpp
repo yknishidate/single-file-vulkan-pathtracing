@@ -929,11 +929,21 @@ private:
         asWrite.setPNext(&asInfo);
         writeDescSets.push_back(asWrite);
 
-        writeDescSets.push_back(createImageWrite(storageImage.createDescInfo(), vkDT::eStorageImage, 1));
-        writeDescSets.push_back(createBufferWrite(vertexBuffer.createDescInfo(), vkDT::eStorageBuffer, 2));
-        writeDescSets.push_back(createBufferWrite(indexBuffer.createDescInfo(), vkDT::eStorageBuffer, 3));
-        writeDescSets.push_back(createBufferWrite(primitiveBuffer.createDescInfo(), vkDT::eStorageBuffer, 4));
-        writeDescSets.push_back(createBufferWrite(uniformBuffer.createDescInfo(), vkDT::eUniformBuffer, 5));
+        vk::DescriptorImageInfo storageImageInfo = storageImage.createDescInfo();
+        vk::DescriptorBufferInfo vertexBufferInfo = vertexBuffer.createDescInfo();
+        vk::DescriptorBufferInfo indexBufferInfo = indexBuffer.createDescInfo();
+        vk::DescriptorBufferInfo primitiveBufferInfo = primitiveBuffer.createDescInfo();
+        vk::DescriptorBufferInfo uniformBufferInfo = uniformBuffer.createDescInfo();
+        vk::WriteDescriptorSet storageImageWrite = createImageWrite(storageImageInfo, vkDT::eStorageImage, 1);
+        vk::WriteDescriptorSet vertexBufferWrite = createBufferWrite(vertexBufferInfo, vkDT::eStorageBuffer, 2);
+        vk::WriteDescriptorSet indexBufferWrite = createBufferWrite(indexBufferInfo, vkDT::eStorageBuffer, 3);
+        vk::WriteDescriptorSet primitiveBufferWrite = createBufferWrite(primitiveBufferInfo, vkDT::eStorageBuffer, 4);
+        vk::WriteDescriptorSet uniformBufferWrite = createBufferWrite(uniformBufferInfo, vkDT::eUniformBuffer, 5);
+        writeDescSets.push_back(storageImageWrite);
+        writeDescSets.push_back(vertexBufferWrite);
+        writeDescSets.push_back(indexBufferWrite);
+        writeDescSets.push_back(primitiveBufferWrite);
+        writeDescSets.push_back(uniformBufferWrite);
         device->updateDescriptorSets(writeDescSets, nullptr);
     }
 
@@ -1040,7 +1050,7 @@ private:
         uint32_t imageIndex = acquireNextImageIndex();
 
         // Wait for fence
-        if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
+        if (imagesInFlight[imageIndex]) {
             device->waitForFences(imagesInFlight[imageIndex], true, UINT64_MAX);
         }
         imagesInFlight[imageIndex] = inFlightFences[currentFrame];
