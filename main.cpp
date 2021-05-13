@@ -66,15 +66,6 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
         case vk::ImageLayout::eUndefined:
             barrier.srcAccessMask = {};
             break;
-        case vk::ImageLayout::ePreinitialized:
-            barrier.srcAccessMask = vkAF::eHostWrite;
-            break;
-        case vk::ImageLayout::eColorAttachmentOptimal:
-            barrier.srcAccessMask = vkAF::eColorAttachmentWrite;
-            break;
-        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            barrier.srcAccessMask = vkAF::eDepthStencilAttachmentWrite;
-            break;
         case vk::ImageLayout::eTransferSrcOptimal:
             barrier.srcAccessMask = vkAF::eTransferRead;
             break;
@@ -94,12 +85,6 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
             break;
         case vk::ImageLayout::eTransferSrcOptimal:
             barrier.dstAccessMask = vkAF::eTransferRead;
-            break;
-        case vk::ImageLayout::eColorAttachmentOptimal:
-            barrier.dstAccessMask = vkAF::eColorAttachmentWrite;
-            break;
-        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            barrier.dstAccessMask = barrier.dstAccessMask | vkAF::eDepthStencilAttachmentWrite;
             break;
         case vk::ImageLayout::eShaderReadOnlyOptimal:
             if (barrier.srcAccessMask == vk::AccessFlags{}) {
