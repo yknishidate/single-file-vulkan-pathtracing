@@ -10,7 +10,6 @@
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 #include <GLFW/glfw3.h> // include after vulkan.hpp
-#include <glm/glm.hpp>
 
 using vkBU = vk::BufferUsageFlagBits;
 using vkIU = vk::ImageUsageFlagBits;
@@ -310,7 +309,7 @@ enum class Material : int
 
 struct Vertex
 {
-    glm::vec3 pos;
+    float pos[3];
 };
 
 struct AccelerationStructure
@@ -692,7 +691,7 @@ private:
         while (std::getline(file, line)) {
             std::vector<std::string> list = split(line, ' ');
             if (list[0] == "v") {
-                vertices.push_back(Vertex{ glm::vec3{ stof(list[1]), -stof(list[2]), stof(list[3]) } });
+                vertices.push_back(Vertex{ stof(list[1]), -stof(list[2]), stof(list[3]) });
             }
             if (list[0] == "usemtl") {
                 if (list[1] == "White") currentMaterial = Material::White;
