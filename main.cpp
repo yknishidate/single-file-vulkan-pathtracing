@@ -40,8 +40,8 @@ debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeveri
 {
     std::cerr << "messageIndexName   = " << pCallbackData->pMessageIdName << "\n";
     for (uint8_t i = 0; i < pCallbackData->objectCount; i++) {
-        std::cerr << "objectType      = " << vk::to_string(static_cast<vk::ObjectType>(
-            pCallbackData->pObjects[i].objectType)) << "\n";
+        vk::ObjectType type = static_cast<vk::ObjectType>(pCallbackData->pObjects[i].objectType);
+        std::cerr << "objectType      = " << vk::to_string(type) << "\n";
     }
     std::cerr << pCallbackData->pMessage << "\n\n";
     return VK_FALSE;
@@ -63,9 +63,6 @@ void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
 
     using vkAF = vk::AccessFlagBits;
     switch (oldLayout) {
-        case vk::ImageLayout::eUndefined:
-            barrier.srcAccessMask = {};
-            break;
         case vk::ImageLayout::eTransferSrcOptimal:
             barrier.srcAccessMask = vkAF::eTransferRead;
             break;
@@ -103,8 +100,7 @@ uint32_t findMemoryType(const vk::PhysicalDevice physicalDevice, const uint32_t 
 {
     vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
     for (uint32_t i = 0; i != memProperties.memoryTypeCount; ++i) {
-        if ((typeFilter & (1 << i))
-            && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
             return i;
         }
     }
@@ -642,8 +638,7 @@ private:
         // Set image layout
         storageImage.imageLayout = vk::ImageLayout::eGeneral;
         vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
-        transitionImageLayout(*cmdBuf, *storageImage.image,
-                              vk::ImageLayout::eUndefined, storageImage.imageLayout);
+        transitionImageLayout(*cmdBuf, *storageImage.image, vk::ImageLayout::eUndefined, storageImage.imageLayout);
         submitCommandBuffer(*cmdBuf);
     }
 
@@ -665,7 +660,9 @@ private:
         graphicsQueue.submit(submitInfo, *fence);
 
         vk::Result res = device->waitForFences(*fence, true, UINT64_MAX);
-        assert(res == vk::Result::eSuccess);
+        if (res != vk::Result::eSuccess) {
+            throw std::runtime_error("failed to wait for fences");
+        }
     }
 
     void loadMesh()
@@ -974,8 +971,9 @@ private:
         vk::StridedDeviceAddressRegionKHR raygenRegion = createAddressRegion(raygenSBT.deviceAddress);
         vk::StridedDeviceAddressRegionKHR missRegion = createAddressRegion(missSBT.deviceAddress);
         vk::StridedDeviceAddressRegionKHR hitRegion = createAddressRegion(hitSBT.deviceAddress);
-        cmdBuf.traceRaysKHR(raygenRegion, missRegion, hitRegion, {},
-                            storageImage.extent.width, storageImage.extent.height, 1);
+        uint32_t width = storageImage.extent.width;
+        uint32_t height = storageImage.extent.height;
+        cmdBuf.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, width, height, 1);
     }
 
     vk::StridedDeviceAddressRegionKHR createAddressRegion(vk::DeviceAddress deviceAddress)
