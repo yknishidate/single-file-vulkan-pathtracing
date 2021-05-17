@@ -10,8 +10,9 @@ struct HitPayload
 };
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 1, set = 0, rgba8) uniform image2D image;
-layout(binding = 5, set = 0) uniform UniformData{ int frame; } uniformData;
+layout(binding = 1, set = 0, rgba8) uniform image2D inputImage;
+layout(binding = 2, set = 0, rgba8) uniform image2D outputImage;
+layout(binding = 6, set = 0) uniform UniformData{ int frame; } uniformData;
 
 layout(location = 0) rayPayloadEXT HitPayload payLoad;
 
@@ -135,7 +136,7 @@ void main()
         color += payLoad.contribution / maxSamples;
     }
 
-    vec4 oldColor = imageLoad(image, ivec2(gl_LaunchIDEXT.xy));
+    vec4 oldColor = imageLoad(inputImage, ivec2(gl_LaunchIDEXT.xy));
     vec4 newColor = (oldColor * uniformData.frame + vec4(color, 0.0)) / float(uniformData.frame + 1);
-    imageStore(image, ivec2(gl_LaunchIDEXT.xy), newColor);
+    imageStore(outputImage, ivec2(gl_LaunchIDEXT.xy), newColor);
 }

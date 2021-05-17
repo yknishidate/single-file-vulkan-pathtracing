@@ -15,6 +15,7 @@ using vkBU = vk::BufferUsageFlagBits;
 using vkIU = vk::ImageUsageFlagBits;
 using vkMP = vk::MemoryPropertyFlagBits;
 using vkDT = vk::DescriptorType;
+using vkIL = vk::ImageLayout;
 
 // ----------------------------------------------------------------------------------------------------------
 // Globals
@@ -401,7 +402,8 @@ private:
     vk::Extent2D extent;
     std::vector<vk::Image> swapChainImages;
 
-    Image storageImage;
+    Image inputImage;
+    Image outputImage;
 
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
@@ -464,7 +466,8 @@ private:
         createSurface();
         createDevice();
         createSwapChain();
-        createStorageImage();
+        createImage(inputImage);
+        createImage(outputImage);
         loadMesh();
         createMeshBuffers();
         createUniformBuffer();
@@ -629,16 +632,16 @@ private:
         swapChainImages = device->getSwapchainImagesKHR(*swapChain);
     }
 
-    void createStorageImage()
+    void createImage(Image& image)
     {
-        storageImage.create(*device, extent, format, vkIU::eStorage | vkIU::eTransferSrc);
-        storageImage.bindMemory(physicalDevice);
-        storageImage.createImageView();
+        image.create(*device, extent, format, vkIU::eStorage | vkIU::eTransferSrc);
+        image.bindMemory(physicalDevice);
+        image.createImageView();
 
         // Set image layout
-        storageImage.imageLayout = vk::ImageLayout::eGeneral;
+        image.imageLayout = vk::ImageLayout::eGeneral;
         vk::UniqueCommandBuffer cmdBuf = createCommandBuffer();
-        transitionImageLayout(*cmdBuf, *storageImage.image, vk::ImageLayout::eUndefined, storageImage.imageLayout);
+        transitionImageLayout(*cmdBuf, *image.image, vk::ImageLayout::eUndefined, image.imageLayout);
         submitCommandBuffer(*cmdBuf);
     }
 
@@ -820,10 +823,11 @@ private:
         using vkSS = vk::ShaderStageFlagBits;
         bindings.push_back({ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }); // Binding = 0 : TLAS
         bindings.push_back({ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
-        bindings.push_back({ 2, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
-        bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
-        bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Materials
-        bindings.push_back({ 5, vkDT::eUniformBuffer, 1, vkSS::eRaygenKHR });            // Binding = 5 : Uniform data
+        bindings.push_back({ 2, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
+        bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
+        bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
+        bindings.push_back({ 5, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Materials
+        bindings.push_back({ 6, vkDT::eUniformBuffer, 1, vkSS::eRaygenKHR });            // Binding = 5 : Uniform data
 
         descSetLayout = device->createDescriptorSetLayoutUnique({ {}, bindings });
         pipelineLayout = device->createPipelineLayoutUnique({ {}, *descSetLayout });
@@ -888,7 +892,7 @@ private:
     void createDescPool()
     {
         std::vector<vk::DescriptorPoolSize> poolSizes{ {vkDT::eAccelerationStructureKHR, 1},
-            {vkDT::eStorageImage, 1}, {vkDT::eStorageBuffer, 3}, {vkDT::eUniformBuffer, 1} };
+            {vkDT::eStorageImage, 2}, {vkDT::eStorageBuffer, 3}, {vkDT::eUniformBuffer, 1} };
 
         descPool = device->createDescriptorPoolUnique(
             vk::DescriptorPoolCreateInfo{}
@@ -910,17 +914,20 @@ private:
         asWrite.setPNext(&asInfo);
         writeDescSets.push_back(asWrite);
 
-        vk::DescriptorImageInfo storageImageInfo = storageImage.createDescInfo();
+        vk::DescriptorImageInfo inputImageInfo = inputImage.createDescInfo();
+        vk::DescriptorImageInfo outputImageInfo = outputImage.createDescInfo();
         vk::DescriptorBufferInfo vertexBufferInfo = vertexBuffer.createDescInfo();
         vk::DescriptorBufferInfo indexBufferInfo = indexBuffer.createDescInfo();
         vk::DescriptorBufferInfo primitiveBufferInfo = primitiveBuffer.createDescInfo();
         vk::DescriptorBufferInfo uniformBufferInfo = uniformBuffer.createDescInfo();
-        vk::WriteDescriptorSet storageImageWrite = createImageWrite(storageImageInfo, vkDT::eStorageImage, 1);
-        vk::WriteDescriptorSet vertexBufferWrite = createBufferWrite(vertexBufferInfo, vkDT::eStorageBuffer, 2);
-        vk::WriteDescriptorSet indexBufferWrite = createBufferWrite(indexBufferInfo, vkDT::eStorageBuffer, 3);
-        vk::WriteDescriptorSet primitiveBufferWrite = createBufferWrite(primitiveBufferInfo, vkDT::eStorageBuffer, 4);
-        vk::WriteDescriptorSet uniformBufferWrite = createBufferWrite(uniformBufferInfo, vkDT::eUniformBuffer, 5);
-        writeDescSets.push_back(storageImageWrite);
+        vk::WriteDescriptorSet inputImageWrite = createImageWrite(inputImageInfo, vkDT::eStorageImage, 1);
+        vk::WriteDescriptorSet outputImageWrite = createImageWrite(outputImageInfo, vkDT::eStorageImage, 2);
+        vk::WriteDescriptorSet vertexBufferWrite = createBufferWrite(vertexBufferInfo, vkDT::eStorageBuffer, 3);
+        vk::WriteDescriptorSet indexBufferWrite = createBufferWrite(indexBufferInfo, vkDT::eStorageBuffer, 4);
+        vk::WriteDescriptorSet primitiveBufferWrite = createBufferWrite(primitiveBufferInfo, vkDT::eStorageBuffer, 5);
+        vk::WriteDescriptorSet uniformBufferWrite = createBufferWrite(uniformBufferInfo, vkDT::eUniformBuffer, 6);
+        writeDescSets.push_back(inputImageWrite);
+        writeDescSets.push_back(outputImageWrite);
         writeDescSets.push_back(vertexBufferWrite);
         writeDescSets.push_back(indexBufferWrite);
         writeDescSets.push_back(primitiveBufferWrite);
@@ -961,7 +968,18 @@ private:
             drawCommandBuffers[i]->bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
                                                       *pipelineLayout, 0, *descSet, nullptr);
             traceRays(*drawCommandBuffers[i]);
-            copyStorageImage(*drawCommandBuffers[i], swapChainImages[i]);
+
+            transitionImageLayout(*drawCommandBuffers[i], *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
+            transitionImageLayout(*drawCommandBuffers[i], *inputImage.image, vkIL::eUndefined, vkIL::eTransferDstOptimal);
+            transitionImageLayout(*drawCommandBuffers[i], swapChainImages[i], vkIL::eUndefined, vkIL::eTransferDstOptimal);
+
+            copyImage(*drawCommandBuffers[i], *outputImage.image, *inputImage.image);
+            copyImage(*drawCommandBuffers[i], *outputImage.image, swapChainImages[i]);
+
+            transitionImageLayout(*drawCommandBuffers[i], *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
+            transitionImageLayout(*drawCommandBuffers[i], *inputImage.image, vkIL::eTransferDstOptimal, vkIL::eGeneral);
+            transitionImageLayout(*drawCommandBuffers[i], swapChainImages[i], vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
+
             drawCommandBuffers[i]->end();
         }
     }
@@ -971,9 +989,7 @@ private:
         vk::StridedDeviceAddressRegionKHR raygenRegion = createAddressRegion(raygenSBT.deviceAddress);
         vk::StridedDeviceAddressRegionKHR missRegion = createAddressRegion(missSBT.deviceAddress);
         vk::StridedDeviceAddressRegionKHR hitRegion = createAddressRegion(hitSBT.deviceAddress);
-        uint32_t width = storageImage.extent.width;
-        uint32_t height = storageImage.extent.height;
-        cmdBuf.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, width, height, 1);
+        cmdBuf.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
     }
 
     vk::StridedDeviceAddressRegionKHR createAddressRegion(vk::DeviceAddress deviceAddress)
@@ -985,21 +1001,14 @@ private:
         return region;
     }
 
-    void copyStorageImage(vk::CommandBuffer& cmdBuf, vk::Image& swapChainImage)
+    void copyImage(vk::CommandBuffer& cmdBuf, vk::Image& srcImage, vk::Image& dstImage)
     {
-        using vkIL = vk::ImageLayout;
-        transitionImageLayout(cmdBuf, *storageImage.image, vkIL::eGeneral, vkIL::eTransferSrcOptimal);
-        transitionImageLayout(cmdBuf, swapChainImage, vkIL::eUndefined, vkIL::eTransferDstOptimal);
-
         vk::ImageCopy copyRegion{};
         copyRegion.setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 });
         copyRegion.setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 });
-        copyRegion.setExtent({ storageImage.extent.width, storageImage.extent.height, 1 });
-        cmdBuf.copyImage(*storageImage.image, vkIL::eTransferSrcOptimal,
-                         swapChainImage, vkIL::eTransferDstOptimal, copyRegion);
-
-        transitionImageLayout(cmdBuf, *storageImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
-        transitionImageLayout(cmdBuf, swapChainImage, vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
+        copyRegion.setExtent({ WIDTH, HEIGHT, 1 });
+        cmdBuf.copyImage(srcImage, vkIL::eTransferSrcOptimal,
+                         dstImage, vkIL::eTransferDstOptimal, copyRegion);
     }
 
     void allocateDrawCommandBuffers()
