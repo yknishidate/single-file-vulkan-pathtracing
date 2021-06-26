@@ -7,9 +7,9 @@
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
-VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
+#include <GLFW/glfw3.h>
 
-#include <GLFW/glfw3.h> // include after vulkan.hpp
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 using vkBU = vk::BufferUsageFlagBits;
 using vkIU = vk::ImageUsageFlagBits;
@@ -23,11 +23,7 @@ using vkIL = vk::ImageLayout;
 constexpr int WIDTH = 1024;
 constexpr int HEIGHT = 1024;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-#ifdef _DEBUG
 constexpr bool enableValidationLayers = true;
-#else
-constexpr bool enableValidationLayers = false;
-#endif
 std::vector<const char*> validationLayers;
 const std::string ASSET_PATH = "assets/CornellBox.obj";
 
@@ -188,6 +184,7 @@ struct Buffer
     vk::BufferUsageFlags usage;
     uint64_t deviceAddress;
     void* mapped = nullptr;
+    vk::DescriptorBufferInfo bufferInfo;
 
     void create(vk::Device device, vk::DeviceSize size, vk::BufferUsageFlags usage)
     {
@@ -226,9 +223,17 @@ struct Buffer
         memcpy(mapped, data, static_cast<size_t>(size));
     }
 
-    vk::DescriptorBufferInfo createDescInfo()
+    vk::WriteDescriptorSet createWrite(vk::DescriptorSet& descSet, vk::DescriptorType type,
+                                       uint32_t binding)
     {
-        return vk::DescriptorBufferInfo{ *buffer, 0, size };
+        bufferInfo = vk::DescriptorBufferInfo{ *buffer, 0, size };
+        vk::WriteDescriptorSet bufferWrite;
+        bufferWrite.setDstSet(descSet);
+        bufferWrite.setDescriptorType(type);
+        bufferWrite.setDescriptorCount(1);
+        bufferWrite.setDstBinding(binding);
+        bufferWrite.setBufferInfo(bufferInfo);
+        return bufferWrite;
     }
 };
 
@@ -241,6 +246,7 @@ struct Image
     vk::Extent2D extent;
     vk::Format format;
     vk::ImageLayout imageLayout;
+    vk::DescriptorImageInfo imageInfo;
 
     void create(vk::Device device, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage)
     {
@@ -278,9 +284,17 @@ struct Image
             .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 }));
     }
 
-    vk::DescriptorImageInfo createDescInfo()
+    vk::WriteDescriptorSet createWrite(vk::DescriptorSet& descSet, vk::DescriptorType type,
+                                       uint32_t binding)
     {
-        return vk::DescriptorImageInfo{ {}, *view, imageLayout };
+        imageInfo = vk::DescriptorImageInfo{ {}, *view, imageLayout };
+        vk::WriteDescriptorSet imageWrite;
+        imageWrite.setDstSet(descSet);
+        imageWrite.setDescriptorType(type);
+        imageWrite.setDescriptorCount(1);
+        imageWrite.setDstBinding(binding);
+        imageWrite.setImageInfo(imageInfo);
+        return imageWrite;
     }
 };
 
@@ -634,7 +648,7 @@ private:
 
     void createImage(Image& image)
     {
-        image.create(*device, extent, format, vkIU::eStorage | vkIU::eTransferSrc);
+        image.create(*device, extent, format, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
         image.bindMemory(physicalDevice);
         image.createImageView();
 
@@ -903,8 +917,6 @@ private:
 
     void updateDescSet()
     {
-        std::vector<vk::WriteDescriptorSet> writeDescSets;
-
         vk::WriteDescriptorSetAccelerationStructureKHR asInfo{ *topLevelAS.handle };
         vk::WriteDescriptorSet asWrite{};
         asWrite.setDstSet(*descSet);
@@ -912,26 +924,15 @@ private:
         asWrite.setDescriptorCount(1);
         asWrite.setDstBinding(0);
         asWrite.setPNext(&asInfo);
-        writeDescSets.push_back(asWrite);
 
-        vk::DescriptorImageInfo inputImageInfo = inputImage.createDescInfo();
-        vk::DescriptorImageInfo outputImageInfo = outputImage.createDescInfo();
-        vk::DescriptorBufferInfo vertexBufferInfo = vertexBuffer.createDescInfo();
-        vk::DescriptorBufferInfo indexBufferInfo = indexBuffer.createDescInfo();
-        vk::DescriptorBufferInfo primitiveBufferInfo = primitiveBuffer.createDescInfo();
-        vk::DescriptorBufferInfo uniformBufferInfo = uniformBuffer.createDescInfo();
-        vk::WriteDescriptorSet inputImageWrite = createImageWrite(inputImageInfo, vkDT::eStorageImage, 1);
-        vk::WriteDescriptorSet outputImageWrite = createImageWrite(outputImageInfo, vkDT::eStorageImage, 2);
-        vk::WriteDescriptorSet vertexBufferWrite = createBufferWrite(vertexBufferInfo, vkDT::eStorageBuffer, 3);
-        vk::WriteDescriptorSet indexBufferWrite = createBufferWrite(indexBufferInfo, vkDT::eStorageBuffer, 4);
-        vk::WriteDescriptorSet primitiveBufferWrite = createBufferWrite(primitiveBufferInfo, vkDT::eStorageBuffer, 5);
-        vk::WriteDescriptorSet uniformBufferWrite = createBufferWrite(uniformBufferInfo, vkDT::eUniformBuffer, 6);
-        writeDescSets.push_back(inputImageWrite);
-        writeDescSets.push_back(outputImageWrite);
-        writeDescSets.push_back(vertexBufferWrite);
-        writeDescSets.push_back(indexBufferWrite);
-        writeDescSets.push_back(primitiveBufferWrite);
-        writeDescSets.push_back(uniformBufferWrite);
+        std::vector<vk::WriteDescriptorSet> writeDescSets;
+        writeDescSets.push_back(asWrite);
+        writeDescSets.push_back(inputImage.createWrite(*descSet, vkDT::eStorageImage, 1));
+        writeDescSets.push_back(outputImage.createWrite(*descSet, vkDT::eStorageImage, 2));
+        writeDescSets.push_back(vertexBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 3));
+        writeDescSets.push_back(indexBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 4));
+        writeDescSets.push_back(primitiveBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 5));
+        writeDescSets.push_back(uniformBuffer.createWrite(*descSet, vkDT::eUniformBuffer, 6));
         device->updateDescriptorSets(writeDescSets, nullptr);
     }
 
