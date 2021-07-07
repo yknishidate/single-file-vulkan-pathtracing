@@ -28,7 +28,7 @@ std::vector<const char*> validationLayers;
 const std::string ASSET_PATH = "assets/CornellBox.obj";
 
 // ----------------------------------------------------------------------------------------------------------
-// Functuins
+// Functions
 // ----------------------------------------------------------------------------------------------------------
 VKAPI_ATTR VkBool32 VKAPI_CALL
 debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
