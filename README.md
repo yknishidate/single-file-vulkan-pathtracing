@@ -21,6 +21,7 @@ See [Vulkan Tutorial / Development environment](https://vulkan-tutorial.com/Deve
 
 ```
 git clone --recursive https://github.com/nishidate-yuki/single-file-vulkan-pathtracing.git
+cd single-file-vulkan-pathtracing
 cmake . -Bbuild
 ```
 
