@@ -13,7 +13,16 @@ Minimal pathtracer using Vulkan RayTracing
 
 ## Setup
 
+### Manual
+
 See [Vulkan Tutorial / Development environment](https://vulkan-tutorial.com/Development_environment)
+
+### cmake
+
+```
+git clone --recursive https://github.com/nishidate-yuki/single-file-vulkan-pathtracing.git
+cmake . -Bbuild
+```
 
 # References
 

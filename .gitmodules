@@ -1,0 +1,6 @@
+[submodule "vulkan"]
+	path = vulkan
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "glfw"]
+	path = glfw
+	url = https://github.com/glfw/glfw.git
