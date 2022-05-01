@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <functional>
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
@@ -23,7 +24,7 @@ using vkIL = vk::ImageLayout;
 constexpr int WIDTH = 1024;
 constexpr int HEIGHT = 1024;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-const std::string ASSET_PATH = "assets/CornellBox.obj";
+const std::string ASSET_PATH = "../assets/CornellBox.obj";
 
 // ----------------------------------------------------------------------------------------------------------
 // Functions
@@ -37,8 +38,8 @@ debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeveri
     return VK_FALSE;
 }
 
-void transitionImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
-                           vk::ImageLayout oldLayout, vk::ImageLayout newLayout)
+void setImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
+                    vk::ImageLayout oldLayout, vk::ImageLayout newLayout)
 {
     vk::PipelineStageFlags srcStageMask = vk::PipelineStageFlagBits::eAllCommands;
     vk::PipelineStageFlags dstStageMask = vk::PipelineStageFlagBits::eAllCommands;
@@ -434,6 +435,7 @@ private:
         loadShaders();
         createRayTracingPipeLine();
         createShaderBindingTable();
+        createDescriptorPool();
         createDescriptorSets();
         buildCommandBuffers();
         createSyncObjects();
@@ -538,7 +540,6 @@ private:
 
     void createSwapChain()
     {
-        // Create swap chain
         vk::SwapchainCreateInfoKHR createInfo{};
         createInfo.setSurface(*surface);
         createInfo.setMinImageCount(3);
@@ -564,12 +565,11 @@ private:
         image.imageLayout = vk::ImageLayout::eGeneral;
         oneTimeSubmit(
             [&](vk::CommandBuffer cmdBuf) {
-                transitionImageLayout(cmdBuf, *image.image, vk::ImageLayout::eUndefined, image.imageLayout);
+                setImageLayout(cmdBuf, *image.image, vk::ImageLayout::eUndefined, image.imageLayout);
             });
     }
 
-    template <typename Func>
-    void oneTimeSubmit(const Func& func)
+    void oneTimeSubmit(const std::function<void(vk::CommandBuffer)>& func)
     {
         vk::CommandBufferAllocateInfo allocInfo{ *commandPool, vk::CommandBufferLevel::ePrimary, 1 };
         vk::UniqueCommandBuffer cmdBuf = std::move(device->allocateCommandBuffersUnique(allocInfo).front());
@@ -622,18 +622,15 @@ private:
             | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress };
         vk::MemoryPropertyFlags properties{ vkMP::eHostVisible | vkMP::eHostCoherent };
 
-        uint64_t vertexBufferSize = vertices.size() * sizeof(Vertex);
-        vertexBuffer.create(*device, vertexBufferSize, usage);
+        vertexBuffer.create(*device, vertices.size() * sizeof(Vertex), usage);
         vertexBuffer.bindMemory(physicalDevice, properties);
         vertexBuffer.copy(vertices.data());
 
-        uint64_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        indexBuffer.create(*device, indexBufferSize, usage);
+        indexBuffer.create(*device, indices.size() * sizeof(uint32_t), usage);
         indexBuffer.bindMemory(physicalDevice, properties);
         indexBuffer.copy(indices.data());
 
-        uint64_t primitiveBufferSize = primitiveMaterials.size() * sizeof(int);
-        primitiveBuffer.create(*device, primitiveBufferSize, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
+        primitiveBuffer.create(*device, primitiveMaterials.size() * sizeof(int), vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
         primitiveBuffer.bindMemory(physicalDevice, properties);
         primitiveBuffer.copy(primitiveMaterials.data());
     }
@@ -708,17 +705,17 @@ private:
         const uint32_t missIndex = 1;
         const uint32_t closestHitIndex = 2;
 
-        shaderModules.push_back(createShaderModule("shaders/raygen.rgen.spv"));
+        shaderModules.push_back(createShaderModule("../shaders/raygen.rgen.spv"));
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules.back(), "main" });
         shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
                                raygenIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
 
-        shaderModules.push_back(createShaderModule("shaders/miss.rmiss.spv"));
+        shaderModules.push_back(createShaderModule("../shaders/miss.rmiss.spv"));
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eMissKHR, *shaderModules.back(), "main" });
         shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
                                missIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
 
-        shaderModules.push_back(createShaderModule("shaders/closesthit.rchit.spv"));
+        shaderModules.push_back(createShaderModule("../shaders/closesthit.rchit.spv"));
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules.back(), "main" });
         shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
                                VK_SHADER_UNUSED_KHR, closestHitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
@@ -794,14 +791,7 @@ private:
         hitSBT.copy(shaderHandleStorage.data() + 2 * handleSizeAligned);
     }
 
-    void createDescriptorSets()
-    {
-        createDescPool();
-        descSet = std::move(device->allocateDescriptorSetsUnique({ *descPool, *descSetLayout }).front());
-        updateDescSet();
-    }
-
-    void createDescPool()
+    void createDescriptorPool()
     {
         std::vector<vk::DescriptorPoolSize> poolSizes{
             {vkDT::eAccelerationStructureKHR, 1},
@@ -814,6 +804,12 @@ private:
         poolInfo.setMaxSets(1);
         poolInfo.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
         descPool = device->createDescriptorPoolUnique(poolInfo);
+    }
+
+    void createDescriptorSets()
+    {
+        descSet = std::move(device->allocateDescriptorSetsUnique({ *descPool, *descSetLayout }).front());
+        updateDescSet();
     }
 
     void updateDescSet()
@@ -869,16 +865,16 @@ private:
                                                       *pipelineLayout, 0, *descSet, nullptr);
             traceRays(*drawCommandBuffers[i]);
 
-            transitionImageLayout(*drawCommandBuffers[i], *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
-            transitionImageLayout(*drawCommandBuffers[i], *inputImage.image, vkIL::eUndefined, vkIL::eTransferDstOptimal);
-            transitionImageLayout(*drawCommandBuffers[i], swapChainImages[i], vkIL::eUndefined, vkIL::eTransferDstOptimal);
+            setImageLayout(*drawCommandBuffers[i], *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
+            setImageLayout(*drawCommandBuffers[i], *inputImage.image, vkIL::eUndefined, vkIL::eTransferDstOptimal);
+            setImageLayout(*drawCommandBuffers[i], swapChainImages[i], vkIL::eUndefined, vkIL::eTransferDstOptimal);
 
             copyImage(*drawCommandBuffers[i], *outputImage.image, *inputImage.image);
             copyImage(*drawCommandBuffers[i], *outputImage.image, swapChainImages[i]);
 
-            transitionImageLayout(*drawCommandBuffers[i], *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
-            transitionImageLayout(*drawCommandBuffers[i], *inputImage.image, vkIL::eTransferDstOptimal, vkIL::eGeneral);
-            transitionImageLayout(*drawCommandBuffers[i], swapChainImages[i], vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
+            setImageLayout(*drawCommandBuffers[i], *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
+            setImageLayout(*drawCommandBuffers[i], *inputImage.image, vkIL::eTransferDstOptimal, vkIL::eGeneral);
+            setImageLayout(*drawCommandBuffers[i], swapChainImages[i], vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
 
             drawCommandBuffers[i]->end();
         }
@@ -932,7 +928,7 @@ private:
         }
     }
 
-    void presentImage(uint32_t imageIndex)
+    void present(uint32_t imageIndex)
     {
         vk::PresentInfoKHR presentInfo;
         presentInfo.setWaitSemaphores(*renderFinishedSemaphores[currentFrame]);
@@ -956,7 +952,7 @@ private:
         submitInfo.setCommandBuffers(*drawCommandBuffers[imageIndex]);
         submitInfo.setSignalSemaphores(*renderFinishedSemaphores[currentFrame]);
         queue.submit(submitInfo, inFlightFences[currentFrame]);
-        presentImage(imageIndex);
+        present(imageIndex);
 
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
         uniformData.frame++;

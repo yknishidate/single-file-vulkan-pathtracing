@@ -13,6 +13,3 @@ target_link_libraries(${PROJECT_NAME} PUBLIC glfw)
 target_include_directories(${PROJECT_NAME} PUBLIC 
     "${PROJECT_SOURCE_DIR}/external/vulkan/include"
 )
-
-file(COPY "${CMAKE_SOURCE_DIR}/assets" DESTINATION ${CMAKE_BINARY_DIR})
-file(COPY "${CMAKE_SOURCE_DIR}/shaders" DESTINATION ${CMAKE_BINARY_DIR})

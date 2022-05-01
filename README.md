@@ -2,7 +2,7 @@
 
 Minimal pathtracer using Vulkan RayTracing
 
-![img](https://user-images.githubusercontent.com/30839669/111055968-87af5700-84be-11eb-9e0a-a6857679061e.png)
+![image](https://user-images.githubusercontent.com/30839669/166169596-d3a30a02-0e2a-4a37-a08b-4cba5315486c.png)
 
 # Environment
 
