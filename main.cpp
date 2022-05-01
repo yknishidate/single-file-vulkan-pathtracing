@@ -393,7 +393,6 @@ private:
     std::vector<vk::UniqueSemaphore> imageAvailableSemaphores;
     std::vector<vk::UniqueSemaphore> renderFinishedSemaphores;
     std::vector<vk::Fence> inFlightFences;
-    std::vector<vk::Fence> imagesInFlight;
     size_t currentFrame = 0;
 
     UniformData uniformData;
@@ -925,7 +924,6 @@ private:
         imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
         renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
         inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-        imagesInFlight.resize(swapChainImages.size());
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             imageAvailableSemaphores[i] = device->createSemaphoreUnique({});
@@ -946,15 +944,9 @@ private:
     void drawFrame()
     {
         device->waitForFences(inFlightFences[currentFrame], true, UINT64_MAX);
+        device->resetFences(inFlightFences[currentFrame]);
 
         uint32_t imageIndex = acquireNextImage();
-
-        // Wait for fence
-        if (imagesInFlight[imageIndex]) {
-            device->waitForFences(imagesInFlight[imageIndex], true, UINT64_MAX);
-        }
-        imagesInFlight[imageIndex] = inFlightFences[currentFrame];
-        device->resetFences(inFlightFences[currentFrame]);
 
         // Submit draw command
         vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };

@@ -93,7 +93,7 @@ void main()
     float tmin = 0.001;
     float tmax = 10000.0;
     uint maxDepth = 8;
-    uint maxSamples = 8;
+    uint maxSamples = 32;
     vec3 color = vec3(0.0);
 
     for(uint sampleCount = 0; sampleCount < maxSamples; sampleCount++){
