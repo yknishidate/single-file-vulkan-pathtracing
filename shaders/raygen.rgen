@@ -3,9 +3,10 @@
 
 struct HitPayload
 {
-    vec3 contribution;
     vec3 position;
     vec3 normal;
+    vec3 emittion;
+    vec3 brdf;
     bool done;
 };
 
@@ -91,7 +92,7 @@ void main()
 {
     float tmin = 0.001;
     float tmax = 10000.0;
-    uint maxDepth = 4;
+    uint maxDepth = 8;
     uint maxSamples = 8;
     vec3 color = vec3(0.0);
 
@@ -109,7 +110,7 @@ void main()
         vec4 target = vec4(d.x, d.y, 2, 1) ;
         vec4 direction = vec4(normalize(target.xyz - origin.xyz), 0) ;
 
-        payLoad.contribution = vec3(1.0);
+        vec3 weight = vec3(1.0);
         payLoad.done = false;
 
         for(uint depth = 0; depth < maxDepth; depth++){
@@ -127,14 +128,17 @@ void main()
                 0     // payloadLocation
             );
             if(payLoad.done){
+                color += weight * payLoad.emittion;
                 break;
             }
             vec2 randVal = vec2(rand(seed), rand(seed));
-            origin = vec4(payLoad.position, 1.0);
+            origin = vec4(payLoad.position + payLoad.normal * 0.001, 1.0);
             direction = vec4(sampleDirection(randVal, payLoad.normal), 1.0);
+            float pdf = 1.0 / (2.0 * M_PI);
+            weight *= payLoad.brdf * dot(direction.xyz, payLoad.normal) / pdf;
         }
-        color += payLoad.contribution / maxSamples;
     }
+    color /= maxSamples;
     
     float weight = 1.0 / (uniformData.frame + 1);
     vec4 oldColor = imageLoad(inputImage, ivec2(gl_LaunchIDEXT.xy));

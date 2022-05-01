@@ -3,9 +3,10 @@
 
 struct HitPayload
 {
-    vec3 contribution;
     vec3 position;
     vec3 normal;
+    vec3 emittion;
+    vec3 brdf;
     bool done;
 };
 
@@ -15,6 +16,8 @@ layout(binding = 5, set = 0) buffer Material{int m[];} materials;
 
 layout(location = 0) rayPayloadInEXT HitPayload payLoad;
 hitAttributeEXT vec3 attribs;
+
+const highp float M_PI = 3.14159265358979323846;
 
 struct Vertex
 {
@@ -56,10 +59,10 @@ void main()
 
     int materialID = materials.m[gl_PrimitiveID];
     if(materialID == LIGHT){
-        payLoad.contribution *= vec3(5.0);
+        payLoad.emittion = vec3(3.0);
         payLoad.done = true;
     }else{
-        payLoad.contribution *= colors[materialID];
+        payLoad.brdf = colors[materialID] / M_PI;
         payLoad.position = pos;
         payLoad.normal = normal;
     }
