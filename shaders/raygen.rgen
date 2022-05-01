@@ -97,7 +97,7 @@ void main()
 
     for(uint sampleCount = 0; sampleCount < maxSamples; sampleCount++){
         // Calc seed
-        uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleCount + uniformData.frame));
+        uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleCount + maxSamples * uniformData.frame + 1));
         uint seed = s.x + s.y;
 
         // Calc ray
@@ -135,8 +135,10 @@ void main()
         }
         color += payLoad.contribution / maxSamples;
     }
-
+    
+    float weight = 1.0 / (uniformData.frame + 1);
     vec4 oldColor = imageLoad(inputImage, ivec2(gl_LaunchIDEXT.xy));
-    vec4 newColor = (oldColor * uniformData.frame + vec4(color, 0.0)) / float(uniformData.frame + 1);
+    vec4 newColor = vec4(color, 1.0);
+    newColor = oldColor * (1.0 - weight) + newColor * weight;
     imageStore(outputImage, ivec2(gl_LaunchIDEXT.xy), newColor);
 }
