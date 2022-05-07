@@ -153,19 +153,14 @@ struct Buffer
         uint32_t memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits, memoryProps);
         vk::MemoryAllocateInfo allocInfo{ requirements.size, memoryTypeIndex };
 
-        if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
-            vk::MemoryAllocateFlagsInfo flagsInfo{ vk::MemoryAllocateFlagBits::eDeviceAddress };
-            allocInfo.pNext = &flagsInfo;
+        vk::MemoryAllocateFlagsInfo flagsInfo{ vk::MemoryAllocateFlagBits::eDeviceAddress };
+        allocInfo.pNext = &flagsInfo;
 
-            memory = device.allocateMemoryUnique(allocInfo);
-            device.bindBufferMemory(*buffer, *memory, 0);
+        memory = device.allocateMemoryUnique(allocInfo);
+        device.bindBufferMemory(*buffer, *memory, 0);
 
-            vk::BufferDeviceAddressInfoKHR bufferDeviceAI{ *buffer };
-            deviceAddress = device.getBufferAddressKHR(&bufferDeviceAI);
-        } else {
-            memory = device.allocateMemoryUnique(allocInfo);
-            device.bindBufferMemory(*buffer, *memory, 0);
-        }
+        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{ *buffer };
+        deviceAddress = device.getBufferAddressKHR(&bufferDeviceAI);
     }
 
     void copy(void* data)
@@ -200,7 +195,7 @@ struct Image
     vk::ImageLayout imageLayout;
     vk::DescriptorImageInfo imageInfo;
 
-    void create(vk::Device device, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage)
+    void create(vk::Device device, vk::PhysicalDevice physicalDevice, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage)
     {
         this->device = device;
         this->extent = extent;
@@ -214,25 +209,21 @@ struct Image
         createInfo.setFormat(format);
         createInfo.setUsage(usage);
         image = device.createImageUnique(createInfo);
-    }
 
-    void bindMemory(vk::PhysicalDevice physicalDevice)
-    {
+        // Allocate memory
         vk::MemoryRequirements requirements = device.getImageMemoryRequirements(*image);
         uint32_t memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits,
                                                   vk::MemoryPropertyFlagBits::eDeviceLocal);
         memory = device.allocateMemoryUnique({ requirements.size, memoryTypeIndex });
         device.bindImageMemory(*image, *memory, 0);
-    }
 
-    void createImageView()
-    {
-        vk::ImageViewCreateInfo createInfo;
-        createInfo.setImage(*image);
-        createInfo.setViewType(vk::ImageViewType::e2D);
-        createInfo.setFormat(format);
-        createInfo.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
-        view = device.createImageViewUnique(createInfo);
+        // Create image view
+        vk::ImageViewCreateInfo viewInfo;
+        viewInfo.setImage(*image);
+        viewInfo.setViewType(vk::ImageViewType::e2D);
+        viewInfo.setFormat(format);
+        viewInfo.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+        view = device.createImageViewUnique(viewInfo);
     }
 
     vk::WriteDescriptorSet createWrite(vk::DescriptorSet& descSet, vk::DescriptorType type,
@@ -548,9 +539,7 @@ private:
 
     void createImage(Image& image)
     {
-        image.create(*device, { WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
-        image.bindMemory(physicalDevice);
-        image.createImageView();
+        image.create(*device, physicalDevice, { WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
 
         // Set image layout
         image.imageLayout = vk::ImageLayout::eGeneral;
