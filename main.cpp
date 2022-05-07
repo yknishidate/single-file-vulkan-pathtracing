@@ -135,27 +135,22 @@ std::vector<std::string> split(std::string& str, char separator)
 struct Buffer
 {
     vk::Device device;
-    vk::PhysicalDevice physicalDevice;
     vk::UniqueBuffer buffer;
     vk::UniqueDeviceMemory memory;
     vk::DeviceSize size;
-    vk::BufferUsageFlags usage;
     uint64_t deviceAddress;
     void* mapped = nullptr;
     vk::DescriptorBufferInfo bufferInfo;
 
-    void create(vk::Device device, vk::DeviceSize size, vk::BufferUsageFlags usage)
+    void create(vk::Device device, vk::PhysicalDevice physicalDevice, vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryProps)
     {
         this->device = device;
         this->size = size;
-        this->usage = usage;
         buffer = device.createBufferUnique({ {}, size, usage });
-    }
 
-    void bindMemory(vk::PhysicalDevice physicalDevice, vk::MemoryPropertyFlags properties)
-    {
+        // Allocate memory
         vk::MemoryRequirements requirements = device.getBufferMemoryRequirements(*buffer);
-        uint32_t memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits, properties);
+        uint32_t memoryTypeIndex = findMemoryType(physicalDevice, requirements.memoryTypeBits, memoryProps);
         vk::MemoryAllocateInfo allocInfo{ requirements.size, memoryTypeIndex };
 
         if (usage & vk::BufferUsageFlagBits::eShaderDeviceAddress) {
@@ -293,8 +288,7 @@ struct AccelerationStructure
         vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = device.getAccelerationStructureBuildSizesKHR(
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
         size = buildSizesInfo.accelerationStructureSize;
-        buffer.create(device, size, vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress);
-        buffer.bindMemory(physicalDevice, vkMP::eDeviceLocal);
+        buffer.create(device, physicalDevice, size, vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress, vkMP::eDeviceLocal);
     }
 
     void create()
@@ -309,8 +303,7 @@ struct AccelerationStructure
     void build(vk::CommandBuffer cmdBuf)
     {
         Buffer scratchBuffer;
-        scratchBuffer.create(device, size, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
-        scratchBuffer.bindMemory(physicalDevice, vkMP::eDeviceLocal);
+        scratchBuffer.create(device, physicalDevice, size, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, vkMP::eDeviceLocal);
         buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
         buildGeometryInfo.setDstAccelerationStructure(*handle);
 
@@ -319,7 +312,7 @@ struct AccelerationStructure
     }
 };
 
-struct UniformData
+struct PushConstants
 {
     int frame = 0;
 };
@@ -396,8 +389,7 @@ private:
     std::vector<vk::Fence> inFlightFences;
     size_t currentFrame = 0;
 
-    UniformData uniformData;
-    Buffer uniformBuffer;
+    PushConstants pushConstants;
 
     const std::vector<const char*> requiredExtensions{
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -429,7 +421,6 @@ private:
         createImage(outputImage);
         loadMesh();
         createMeshBuffers();
-        createUniformBuffer();
         createBottomLevelAS();
         createTopLevelAS();
         loadShaders();
@@ -437,7 +428,7 @@ private:
         createShaderBindingTable();
         createDescriptorPool();
         createDescriptorSets();
-        buildCommandBuffers();
+        allocateDrawCommandBuffers();
         createSyncObjects();
     }
 
@@ -446,8 +437,8 @@ private:
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             drawFrame();
-            if (uniformData.frame % 10 == 0) {
-                std::cout << "frame: " << uniformData.frame << std::endl;
+            if (pushConstants.frame % 10 == 0) {
+                std::cout << "frame: " << pushConstants.frame << std::endl;
             }
         }
         device->waitIdle();
@@ -622,24 +613,14 @@ private:
             | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress };
         vk::MemoryPropertyFlags properties{ vkMP::eHostVisible | vkMP::eHostCoherent };
 
-        vertexBuffer.create(*device, vertices.size() * sizeof(Vertex), usage);
-        vertexBuffer.bindMemory(physicalDevice, properties);
+        vertexBuffer.create(*device, physicalDevice, vertices.size() * sizeof(Vertex), usage, properties);
         vertexBuffer.copy(vertices.data());
 
-        indexBuffer.create(*device, indices.size() * sizeof(uint32_t), usage);
-        indexBuffer.bindMemory(physicalDevice, properties);
+        indexBuffer.create(*device, physicalDevice, indices.size() * sizeof(uint32_t), usage, properties);
         indexBuffer.copy(indices.data());
 
-        primitiveBuffer.create(*device, primitiveMaterials.size() * sizeof(int), vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
-        primitiveBuffer.bindMemory(physicalDevice, properties);
+        primitiveBuffer.create(*device, physicalDevice, primitiveMaterials.size() * sizeof(int), vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, properties);
         primitiveBuffer.copy(primitiveMaterials.data());
-    }
-
-    void createUniformBuffer()
-    {
-        uniformBuffer.create(*device, sizeof(UniformData), vkBU::eUniformBuffer);
-        uniformBuffer.bindMemory(physicalDevice, vkMP::eHostVisible | vkMP::eHostCoherent);
-        uniformBuffer.copy(&uniformData);
     }
 
     void createBottomLevelAS()
@@ -678,9 +659,9 @@ private:
         asInstance.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 
         Buffer instancesBuffer;
-        instancesBuffer.create(*device, sizeof(vk::AccelerationStructureInstanceKHR),
-                               vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eShaderDeviceAddress);
-        instancesBuffer.bindMemory(physicalDevice, vkMP::eHostVisible | vkMP::eHostCoherent);
+        instancesBuffer.create(*device, physicalDevice, sizeof(vk::AccelerationStructureInstanceKHR),
+                               vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eShaderDeviceAddress,
+                               vkMP::eHostVisible | vkMP::eHostCoherent);
         instancesBuffer.copy(&asInstance);
 
         vk::AccelerationStructureGeometryInstancesDataKHR instancesData;
@@ -740,7 +721,12 @@ private:
         bindings.push_back({ 6, vkDT::eUniformBuffer, 1, vkSS::eRaygenKHR });            // Binding = 5 : Uniform data
 
         descSetLayout = device->createDescriptorSetLayoutUnique({ {}, bindings });
-        pipelineLayout = device->createPipelineLayoutUnique({ {}, *descSetLayout });
+
+        vk::PushConstantRange pushRange;
+        pushRange.setOffset(0);
+        pushRange.setSize(sizeof(PushConstants));
+        pushRange.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+        pipelineLayout = device->createPipelineLayoutUnique({ {}, *descSetLayout, pushRange });
 
         // Create pipeline
         vk::RayTracingPipelineCreateInfoKHR createInfo;
@@ -778,16 +764,13 @@ private:
         vk::BufferUsageFlags usage = vkBU::eShaderBindingTableKHR | vkBU::eTransferSrc | vkBU::eShaderDeviceAddress;
         vk::MemoryPropertyFlags properties = vkMP::eHostVisible | vkMP::eHostCoherent;
 
-        raygenSBT.create(*device, handleSize, usage);
-        raygenSBT.bindMemory(physicalDevice, properties);
+        raygenSBT.create(*device, physicalDevice, handleSize, usage, properties);
         raygenSBT.copy(shaderHandleStorage.data() + 0 * handleSizeAligned);
 
-        missSBT.create(*device, handleSize, usage);
-        missSBT.bindMemory(physicalDevice, properties);
+        missSBT.create(*device, physicalDevice, handleSize, usage, properties);
         missSBT.copy(shaderHandleStorage.data() + 1 * handleSizeAligned);
 
-        hitSBT.create(*device, handleSize, usage);
-        hitSBT.bindMemory(physicalDevice, properties);
+        hitSBT.create(*device, physicalDevice, handleSize, usage, properties);
         hitSBT.copy(shaderHandleStorage.data() + 2 * handleSizeAligned);
     }
 
@@ -829,7 +812,6 @@ private:
         writeDescSets.push_back(vertexBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 3));
         writeDescSets.push_back(indexBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 4));
         writeDescSets.push_back(primitiveBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 5));
-        writeDescSets.push_back(uniformBuffer.createWrite(*descSet, vkDT::eUniformBuffer, 6));
         device->updateDescriptorSets(writeDescSets, nullptr);
     }
 
@@ -855,37 +837,30 @@ private:
         return bufferWrite;
     }
 
-    void buildCommandBuffers()
+    void recordCommandBuffers(vk::CommandBuffer commandBuffer, vk::Image swapchainImage)
     {
-        allocateDrawCommandBuffers();
-        for (int32_t i = 0; i < drawCommandBuffers.size(); ++i) {
-            drawCommandBuffers[i]->begin(vk::CommandBufferBeginInfo{});
-            drawCommandBuffers[i]->bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
-            drawCommandBuffers[i]->bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR,
-                                                      *pipelineLayout, 0, *descSet, nullptr);
-            traceRays(*drawCommandBuffers[i]);
+        commandBuffer.begin(vk::CommandBufferBeginInfo{});
+        commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
+        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout, 0, *descSet, nullptr);
+        commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(PushConstants), &pushConstants);
 
-            setImageLayout(*drawCommandBuffers[i], *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
-            setImageLayout(*drawCommandBuffers[i], *inputImage.image, vkIL::eUndefined, vkIL::eTransferDstOptimal);
-            setImageLayout(*drawCommandBuffers[i], swapChainImages[i], vkIL::eUndefined, vkIL::eTransferDstOptimal);
-
-            copyImage(*drawCommandBuffers[i], *outputImage.image, *inputImage.image);
-            copyImage(*drawCommandBuffers[i], *outputImage.image, swapChainImages[i]);
-
-            setImageLayout(*drawCommandBuffers[i], *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
-            setImageLayout(*drawCommandBuffers[i], *inputImage.image, vkIL::eTransferDstOptimal, vkIL::eGeneral);
-            setImageLayout(*drawCommandBuffers[i], swapChainImages[i], vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
-
-            drawCommandBuffers[i]->end();
-        }
-    }
-
-    void traceRays(vk::CommandBuffer& cmdBuf)
-    {
         vk::StridedDeviceAddressRegionKHR raygenRegion = createAddressRegion(raygenSBT.deviceAddress);
         vk::StridedDeviceAddressRegionKHR missRegion = createAddressRegion(missSBT.deviceAddress);
         vk::StridedDeviceAddressRegionKHR hitRegion = createAddressRegion(hitSBT.deviceAddress);
-        cmdBuf.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
+        commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
+
+        setImageLayout(commandBuffer, *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
+        setImageLayout(commandBuffer, *inputImage.image, vkIL::eUndefined, vkIL::eTransferDstOptimal);
+        setImageLayout(commandBuffer, swapchainImage, vkIL::eUndefined, vkIL::eTransferDstOptimal);
+
+        copyImage(commandBuffer, *outputImage.image, *inputImage.image);
+        copyImage(commandBuffer, *outputImage.image, swapchainImage);
+
+        setImageLayout(commandBuffer, *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
+        setImageLayout(commandBuffer, *inputImage.image, vkIL::eTransferDstOptimal, vkIL::eGeneral);
+        setImageLayout(commandBuffer, swapchainImage, vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
+
+        commandBuffer.end();
     }
 
     vk::StridedDeviceAddressRegionKHR createAddressRegion(vk::DeviceAddress deviceAddress)
@@ -944,6 +919,8 @@ private:
 
         uint32_t imageIndex = acquireNextImage();
 
+        recordCommandBuffers(*drawCommandBuffers[imageIndex], swapChainImages[imageIndex]);
+
         // Submit draw command
         vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };
         vk::SubmitInfo submitInfo;
@@ -955,8 +932,7 @@ private:
         present(imageIndex);
 
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-        uniformData.frame++;
-        uniformBuffer.copy(&uniformData);
+        pushConstants.frame++;
     }
 
     uint32_t acquireNextImage()

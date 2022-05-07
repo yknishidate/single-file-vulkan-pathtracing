@@ -13,7 +13,9 @@ struct HitPayload
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba8) uniform image2D inputImage;
 layout(binding = 2, set = 0, rgba8) uniform image2D outputImage;
-layout(binding = 6, set = 0) uniform UniformData{ int frame; } uniformData;
+layout(push_constant) uniform PushConstants {
+    int frame;
+} pushConstants;
 
 layout(location = 0) rayPayloadEXT HitPayload payLoad;
 
@@ -23,24 +25,19 @@ uint pcg(inout uint state)
 {
     uint prev = state * 747796405u + 2891336453u;
     uint word = ((prev >> ((prev >> 28u) + 4u)) ^ prev) * 277803737u;
-    state     = prev;
+    state = prev;
     return (word >> 22u) ^ word;
 }
 
 uvec2 pcg2d(uvec2 v)
 {
     v = v * 1664525u + 1013904223u;
-
     v.x += v.y * 1664525u;
     v.y += v.x * 1664525u;
-
     v = v ^ (v >> 16u);
-
     v.x += v.y * 1664525u;
     v.y += v.x * 1664525u;
-
     v = v ^ (v >> 16u);
-
     return v;
 }
 
@@ -53,22 +50,21 @@ float rand(inout uint seed)
 vec3 cosineSampleHemisphere(float u1, float u2)
 {
     vec3  dir;
-    float r   = sqrt(u1);
+    float r = sqrt(u1);
     float phi = 2.0 * M_PI * u2;
-    dir.x     = r * cos(phi);
-    dir.y     = r * sin(phi);
-    dir.z     = sqrt(max(0.0, 1.0 - dir.x * dir.x - dir.y * dir.y));
-
+    dir.x = r * cos(phi);
+    dir.y = r * sin(phi);
+    dir.z = sqrt(max(0.0, 1.0 - dir.x * dir.x - dir.y * dir.y));
     return dir;
 }
 
-void createCoordinateSystem(in vec3 N, out vec3 Nt, out vec3 Nb)
+void createCoordinateSystem(in vec3 N, out vec3 T, out vec3 B)
 {
     if(abs(N.x) > abs(N.y))
-        Nt = vec3(N.z, 0, -N.x) / sqrt(N.x * N.x + N.z * N.z);
+        T = vec3(N.z, 0, -N.x) / sqrt(N.x * N.x + N.z * N.z);
     else
-        Nt = vec3(0, -N.z, N.y) / sqrt(N.y * N.y + N.z * N.z);
-    Nb = cross(N, Nt);
+        T = vec3(0, -N.z, N.y) / sqrt(N.y * N.y + N.z * N.z);
+    B = cross(N, T);
 }
 
 vec3 sampleHemisphere(vec2 randVal, in vec3 x, in vec3 y, in vec3 z)
@@ -98,7 +94,7 @@ void main()
 
     for(uint sampleCount = 0; sampleCount < maxSamples; sampleCount++){
         // Calc seed
-        uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleCount + maxSamples * uniformData.frame + 1));
+        uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleCount + maxSamples * pushConstants.frame + 1));
         uint seed = s.x + s.y;
 
         // Calc ray
@@ -140,7 +136,7 @@ void main()
     }
     color /= maxSamples;
     
-    float weight = 1.0 / (uniformData.frame + 1);
+    float weight = 1.0 / (pushConstants.frame + 1);
     vec4 oldColor = imageLoad(inputImage, ivec2(gl_LaunchIDEXT.xy));
     vec4 newColor = vec4(color, 1.0);
     newColor = oldColor * (1.0 - weight) + newColor * weight;
