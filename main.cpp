@@ -273,7 +273,7 @@ struct Context
         glfwPollEvents();
     }
 
-    static uint32_t findMemoryType(const uint32_t typeFilter, const vk::MemoryPropertyFlags properties)
+    static uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties)
     {
         vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
         for (uint32_t i = 0; i != memProperties.memoryTypeCount; ++i) {
@@ -422,8 +422,7 @@ struct Image
         view = Context::device->createImageViewUnique(viewInfo);
     }
 
-    vk::WriteDescriptorSet createWrite(vk::DescriptorSet& descSet, vk::DescriptorType type,
-                                       uint32_t binding)
+    vk::WriteDescriptorSet createWrite(vk::DescriptorSet& descSet, vk::DescriptorType type, uint32_t binding)
     {
         imageInfo = vk::DescriptorImageInfo{ {}, *view, imageLayout };
         vk::WriteDescriptorSet imageWrite;
@@ -450,47 +449,41 @@ struct Accel
 {
     vk::UniqueAccelerationStructureKHR handle;
     Buffer buffer;
-
-    vk::AccelerationStructureTypeKHR type;
-    uint32_t primitiveCount;
     vk::DeviceSize size;
-    vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
     uint64_t deviceAddress;
 
-    void createBuffer(vk::AccelerationStructureGeometryKHR geometry,
-                      vk::AccelerationStructureTypeKHR type, uint32_t primitiveCount)
+    void create(vk::AccelerationStructureGeometryKHR geometry,
+                vk::AccelerationStructureTypeKHR type, uint32_t primitiveCount)
     {
-        this->type = type;
-        this->primitiveCount = primitiveCount;
-
+        vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
         buildGeometryInfo.setType(type);
         buildGeometryInfo.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
         buildGeometryInfo.setGeometries(geometry);
 
+        // Create buffer
         vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = Context::device->getAccelerationStructureBuildSizesKHR(
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
         size = buildSizesInfo.accelerationStructureSize;
         buffer.create(size, vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress, vkMP::eDeviceLocal);
-    }
 
-    void create()
-    {
+        // Create accel
         vk::AccelerationStructureCreateInfoKHR createInfo;
         createInfo.setBuffer(*buffer.buffer);
         createInfo.setSize(size);
         createInfo.setType(type);
         handle = Context::device->createAccelerationStructureKHRUnique(createInfo);
-    }
 
-    void build(vk::CommandBuffer cmdBuf)
-    {
+        // Build
         Buffer scratchBuffer;
         scratchBuffer.create(size, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, vkMP::eDeviceLocal);
         buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
         buildGeometryInfo.setDstAccelerationStructure(*handle);
 
         vk::AccelerationStructureBuildRangeInfoKHR buildRangeInfo{ primitiveCount , 0, 0, 0 };
-        cmdBuf.buildAccelerationStructuresKHR(buildGeometryInfo, &buildRangeInfo);
+        Context::oneTimeSubmit(
+            [&](vk::CommandBuffer commandBuffer) {
+                commandBuffer.buildAccelerationStructuresKHR(buildGeometryInfo, &buildRangeInfo);
+            });
     }
 };
 
@@ -659,9 +652,7 @@ private:
         geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         uint32_t primitiveCount = indices.size() / 3;
-        bottomAccel.createBuffer(geometry, vk::AccelerationStructureTypeKHR::eBottomLevel, primitiveCount);
-        bottomAccel.create();
-        Context::oneTimeSubmit([&](vk::CommandBuffer cmdBuf) { bottomAccel.build(cmdBuf); });
+        bottomAccel.create(geometry, vk::AccelerationStructureTypeKHR::eBottomLevel, primitiveCount);
     }
 
     void createTopLevelAS()
@@ -693,10 +684,7 @@ private:
         geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         uint32_t primitiveCount = 1;
-        topAccel.createBuffer(geometry,
-                              vk::AccelerationStructureTypeKHR::eTopLevel, primitiveCount);
-        topAccel.create();
-        Context::oneTimeSubmit([&](vk::CommandBuffer cmdBuf) { topAccel.build(cmdBuf); });
+        topAccel.create(geometry, vk::AccelerationStructureTypeKHR::eTopLevel, primitiveCount);
     }
 
     void loadShaders()
