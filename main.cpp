@@ -522,7 +522,6 @@ public:
     }
 
 private:
-    Image inputImage;
     Image outputImage;
 
     std::vector<Vertex> vertices;
@@ -564,7 +563,6 @@ private:
 
     void initVulkan()
     {
-        inputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
         outputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
         loadFromFile(vertices, indices, faces);
         createMeshBuffers();
@@ -680,10 +678,9 @@ private:
         using vkSS = vk::ShaderStageFlagBits;
         bindings.push_back({ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }); // Binding = 0 : TLAS
         bindings.push_back({ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
-        bindings.push_back({ 2, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
-        bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
-        bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
-        bindings.push_back({ 5, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Materials
+        bindings.push_back({ 2, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
+        bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
+        bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Faces
 
         descSetLayout = Context::device->createDescriptorSetLayoutUnique({ {}, bindings });
 
@@ -752,11 +749,10 @@ private:
             writes[i].setDstBinding(bindings[i].binding);
         }
         writes[0].setPNext(&topAccel.accelInfo);
-        writes[1].setImageInfo(inputImage.imageInfo);
-        writes[2].setImageInfo(outputImage.imageInfo);
-        writes[3].setBufferInfo(vertexBuffer.bufferInfo);
-        writes[4].setBufferInfo(indexBuffer.bufferInfo);
-        writes[5].setBufferInfo(faceBuffer.bufferInfo);
+        writes[1].setImageInfo(outputImage.imageInfo);
+        writes[2].setBufferInfo(vertexBuffer.bufferInfo);
+        writes[3].setBufferInfo(indexBuffer.bufferInfo);
+        writes[4].setBufferInfo(faceBuffer.bufferInfo);
         Context::device->updateDescriptorSets(writes, nullptr);
     }
 
@@ -769,14 +765,11 @@ private:
         commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
 
         setImageLayout(commandBuffer, *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
-        setImageLayout(commandBuffer, *inputImage.image, vkIL::eUndefined, vkIL::eTransferDstOptimal);
         setImageLayout(commandBuffer, swapchainImage, vkIL::eUndefined, vkIL::eTransferDstOptimal);
 
-        copyImage(commandBuffer, *outputImage.image, *inputImage.image);
         copyImage(commandBuffer, *outputImage.image, swapchainImage);
 
         setImageLayout(commandBuffer, *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
-        setImageLayout(commandBuffer, *inputImage.image, vkIL::eTransferDstOptimal, vkIL::eGeneral);
         setImageLayout(commandBuffer, swapchainImage, vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
         commandBuffer.end();
     }

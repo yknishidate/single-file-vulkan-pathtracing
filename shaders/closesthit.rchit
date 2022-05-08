@@ -10,9 +10,9 @@ struct HitPayload
     bool done;
 };
 
-layout(binding = 3, set = 0) buffer Vertices{float v[];} vertices;
-layout(binding = 4, set = 0) buffer Indices{uint i[];} indices;
-layout(binding = 5, set = 0) buffer Faces{float f[];} faces;
+layout(binding = 2, set = 0) buffer Vertices{float v[];} vertices;
+layout(binding = 3, set = 0) buffer Indices{uint i[];} indices;
+layout(binding = 4, set = 0) buffer Faces{float f[];} faces;
 
 layout(location = 0) rayPayloadInEXT HitPayload payLoad;
 hitAttributeEXT vec3 attribs;

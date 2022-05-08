@@ -11,8 +11,7 @@ struct HitPayload
 };
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 1, set = 0, rgba8) uniform image2D inputImage;
-layout(binding = 2, set = 0, rgba8) uniform image2D outputImage;
+layout(binding = 1, set = 0, rgba8) uniform image2D outputImage;
 layout(push_constant) uniform PushConstants {
     int frame;
 } pushConstants;
@@ -121,7 +120,7 @@ void main()
     }
     color /= maxSamples;
     
-    vec4 oldColor = imageLoad(inputImage, ivec2(gl_LaunchIDEXT.xy));
+    vec4 oldColor = imageLoad(outputImage, ivec2(gl_LaunchIDEXT.xy));
     vec4 newColor = vec4(color, 1.0);
     newColor = (newColor + (oldColor * pushConstants.frame)) / (pushConstants.frame + 1);
     imageStore(outputImage, ivec2(gl_LaunchIDEXT.xy), newColor);
