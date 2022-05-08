@@ -90,7 +90,7 @@ struct Vertex
     float pos[3];
 };
 
-struct Material
+struct Face
 {
     float diffuse[3];
     float emission[3];
@@ -99,7 +99,7 @@ struct Material
 void loadFromFile(const std::string& filepath,
                   std::vector<Vertex>& vertices,
                   std::vector<uint32_t>& indices,
-                  std::vector<Material>& primitiveMaterials)
+                  std::vector<Face>& faces)
 {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -116,25 +116,18 @@ void loadFromFile(const std::string& filepath,
             vertex.pos[0] = attrib.vertices[3 * index.vertex_index + 0];
             vertex.pos[1] = -attrib.vertices[3 * index.vertex_index + 1];
             vertex.pos[2] = attrib.vertices[3 * index.vertex_index + 2];
-
-            //vertex.normal = {
-            //    attrib.normals[3 * index.normal_index + 0],
-            //   -attrib.normals[3 * index.normal_index + 1],
-            //    attrib.normals[3 * index.normal_index + 2],
-            //};
-
             vertices.push_back(vertex);
             indices.push_back(indices.size());
         }
         for (const auto& matIndex : shape.mesh.material_ids) {
-            Material mat;
-            mat.diffuse[0] = materials[matIndex].diffuse[0];
-            mat.diffuse[1] = materials[matIndex].diffuse[1];
-            mat.diffuse[2] = materials[matIndex].diffuse[2];
-            mat.emission[0] = materials[matIndex].emission[0];
-            mat.emission[1] = materials[matIndex].emission[1];
-            mat.emission[2] = materials[matIndex].emission[2];
-            primitiveMaterials.push_back(mat);
+            Face face;
+            face.diffuse[0] = materials[matIndex].diffuse[0];
+            face.diffuse[1] = materials[matIndex].diffuse[1];
+            face.diffuse[2] = materials[matIndex].diffuse[2];
+            face.emission[0] = materials[matIndex].emission[0];
+            face.emission[1] = materials[matIndex].emission[1];
+            face.emission[2] = materials[matIndex].emission[2];
+            faces.push_back(face);
         }
     }
 }
@@ -153,22 +146,6 @@ std::vector<char> readFile(const std::string& filename)
     file.close();
     return buffer;
 }
-
-//std::vector<std::string> split(std::string& str, char separator)
-//{
-//    std::vector<std::string> list;
-//    size_t offset = 0;
-//    while (1) {
-//        auto pos = str.find(separator, offset);
-//        if (pos == std::string::npos) {
-//            list.push_back(str.substr(offset));
-//            break;
-//        }
-//        list.push_back(str.substr(offset, pos - offset));
-//        offset = pos + 1;
-//    }
-//    return list;
-//}
 
 struct Context
 {
@@ -547,8 +524,8 @@ private:
     Buffer vertexBuffer;
     Buffer indexBuffer;
 
-    std::vector<Material> primitiveMaterials;
-    Buffer primitiveBuffer;
+    std::vector<Face> faces;
+    Buffer faceBuffer;
 
     Accel bottomAccel;
     Accel topAccel;
@@ -583,7 +560,7 @@ private:
     {
         inputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
         outputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
-        loadMesh();
+        loadFromFile(ASSET_PATH, vertices, indices, faces);
         createMeshBuffers();
         createBottomLevelAS();
         createTopLevelAS();
@@ -607,38 +584,6 @@ private:
         Context::device->waitIdle();
     }
 
-    void loadMesh()
-    {
-        loadFromFile(ASSET_PATH, vertices, indices, primitiveMaterials);
-        //std::ifstream file(ASSET_PATH);
-        //if (!file.is_open()) {
-        //    throw std::runtime_error("failed to open file!");
-        //}
-
-        //std::string line;
-        //Material currentMaterial = Material::White;
-        //while (std::getline(file, line)) {
-        //    std::vector<std::string> list = split(line, ' ');
-        //    if (list[0] == "v") {
-        //        vertices.push_back(Vertex{ stof(list[1]), -stof(list[2]), stof(list[3]) });
-        //    }
-        //    if (list[0] == "usemtl") {
-        //        if (list[1] == "White") currentMaterial = Material::White;
-        //        if (list[1] == "Red")   currentMaterial = Material::Red;
-        //        if (list[1] == "Green") currentMaterial = Material::Green;
-        //        if (list[1] == "Light") currentMaterial = Material::Light;
-        //    }
-        //    if (list[0] == "f") {
-        //        for (int i = 1; i <= 3; i++) {
-        //            std::vector<std::string> vertAttrs = split(list[i], '/');
-        //            int vertIndex = stoi(vertAttrs[0]) - 1;
-        //            indices.push_back(static_cast<uint32_t>(vertIndex));
-        //        }
-        //        primitiveMaterials.push_back(currentMaterial);
-        //    }
-        //}
-    }
-
     void createMeshBuffers()
     {
         vk::BufferUsageFlags usage{ vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress };
@@ -646,7 +591,7 @@ private:
 
         vertexBuffer.create(vertices, usage, memoryProps);
         indexBuffer.create(indices, usage, memoryProps);
-        primitiveBuffer.create(primitiveMaterials, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, memoryProps);
+        faceBuffer.create(faces, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, memoryProps);
     }
 
     void createBottomLevelAS()
@@ -812,7 +757,7 @@ private:
         writes[2].setImageInfo(outputImage.imageInfo);
         writes[3].setBufferInfo(vertexBuffer.bufferInfo);
         writes[4].setBufferInfo(indexBuffer.bufferInfo);
-        writes[5].setBufferInfo(primitiveBuffer.bufferInfo);
+        writes[5].setBufferInfo(faceBuffer.bufferInfo);
         Context::device->updateDescriptorSets(writes, nullptr);
     }
 
