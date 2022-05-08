@@ -165,7 +165,7 @@ struct Context
             extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
             // Gather layers
-            std::vector<const char*> layers{ "VK_LAYER_KHRONOS_validation" };
+            std::vector<const char*> layers{ "VK_LAYER_KHRONOS_validation", "VK_LAYER_LUNARG_monitor" };
 
             // Setup DynamicLoader (see https://github.com/KhronosGroup/Vulkan-Hpp)
             static vk::DynamicLoader dl;
@@ -583,9 +583,6 @@ private:
         while (!Context::windowShouldClose()) {
             Context::pollEvents();
             drawFrame();
-            if (pushConstants.frame % 10 == 0) {
-                std::cout << "frame: " << pushConstants.frame << std::endl;
-            }
         }
         Context::device->waitIdle();
     }

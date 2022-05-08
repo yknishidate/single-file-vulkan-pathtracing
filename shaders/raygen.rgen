@@ -5,7 +5,7 @@ struct HitPayload
 {
     vec3 position;
     vec3 normal;
-    vec3 emittion;
+    vec3 emission;
     vec3 brdf;
     bool done;
 };
@@ -47,17 +47,6 @@ float rand(inout uint seed)
     return (float(val) * (1.0 / float(0xffffffffu)));
 }
 
-vec3 cosineSampleHemisphere(float u1, float u2)
-{
-    vec3  dir;
-    float r = sqrt(u1);
-    float phi = 2.0 * M_PI * u2;
-    dir.x = r * cos(phi);
-    dir.y = r * sin(phi);
-    dir.z = sqrt(max(0.0, 1.0 - dir.x * dir.x - dir.y * dir.y));
-    return dir;
-}
-
 void createCoordinateSystem(in vec3 N, out vec3 T, out vec3 B)
 {
     if(abs(N.x) > abs(N.y))
@@ -67,34 +56,31 @@ void createCoordinateSystem(in vec3 N, out vec3 T, out vec3 B)
     B = cross(N, T);
 }
 
-vec3 sampleHemisphere(vec2 randVal, in vec3 x, in vec3 y, in vec3 z)
+vec3 sampleHemisphere(float rand1, float rand2)
 {
-    float r1        = randVal.x;
-    float r2        = randVal.y;
-    vec3  direction = cosineSampleHemisphere(r1, r2);
-    return direction.x * x + direction.y * y + direction.z * z;
+    vec3 dir;
+    dir.x = cos(2 * M_PI * rand2) * sqrt(1 - rand1 * rand1);
+    dir.y = sin(2 * M_PI * rand2) * sqrt(1 - rand1 * rand1);
+    dir.z = rand1;
+    return dir;
 }
 
-vec3 sampleDirection(vec2 randVal, vec3 normal)
+vec3 sampleDirection(float rand1, float rand2, vec3 normal)
 {
     vec3 tangent;
     vec3 bitangent;
     createCoordinateSystem(normal, tangent, bitangent);
-    vec3 dir = cosineSampleHemisphere(randVal.x, randVal.y);
+    vec3 dir = sampleHemisphere(rand1, rand2);
     return dir.x * tangent + dir.y * bitangent + dir.z * normal;
 }
 
 void main()
 {
-    float tmin = 0.001;
-    float tmax = 10000.0;
-    uint maxDepth = 8;
-    uint maxSamples = 32;
+    int maxSamples = 32;
     vec3 color = vec3(0.0);
-
-    for(uint sampleCount = 0; sampleCount < maxSamples; sampleCount++){
+    for(uint sampleNum = 0; sampleNum < maxSamples; sampleNum++){
         // Calc seed
-        uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleCount + maxSamples * pushConstants.frame + 1));
+        uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleNum + maxSamples * pushConstants.frame + 1));
         uint seed = s.x + s.y;
 
         // Calc ray
@@ -109,7 +95,7 @@ void main()
         vec3 weight = vec3(1.0);
         payLoad.done = false;
 
-        for(uint depth = 0; depth < maxDepth; depth++){
+        for(uint depth = 0; depth < 8; depth++){
             traceRayEXT(
                 topLevelAS,
                 gl_RayFlagsOpaqueEXT,
@@ -118,27 +104,25 @@ void main()
                 0,    // sbtRecordStride
                 0,    // missIndex
                 origin.xyz,
-                tmin,
+                0.001,
                 direction.xyz,
-                tmax,
+                10000.0,
                 0     // payloadLocation
             );
+            color += weight * payLoad.emission;
+            origin.xyz = payLoad.position + payLoad.normal * 0.001;
+            direction.xyz = sampleDirection(rand(seed), rand(seed), payLoad.normal);
+            float pdf = 1.0 / (2.0 * M_PI);
+            weight *= payLoad.brdf * dot(direction.xyz, payLoad.normal) / pdf;
             if(payLoad.done){
                 break;
             }
-            color += weight * payLoad.emittion;
-            vec2 randVal = vec2(rand(seed), rand(seed));
-            origin = vec4(payLoad.position + payLoad.normal * 0.001, 1.0);
-            direction = vec4(sampleDirection(randVal, payLoad.normal), 1.0);
-            float pdf = 1.0 / (2.0 * M_PI);
-            weight *= payLoad.brdf * dot(direction.xyz, payLoad.normal) / pdf;
         }
     }
     color /= maxSamples;
     
-    float weight = 1.0 / (pushConstants.frame + 1);
     vec4 oldColor = imageLoad(inputImage, ivec2(gl_LaunchIDEXT.xy));
     vec4 newColor = vec4(color, 1.0);
-    newColor = oldColor * (1.0 - weight) + newColor * weight;
+    newColor = (newColor + (oldColor * pushConstants.frame)) / (pushConstants.frame + 1);
     imageStore(outputImage, ivec2(gl_LaunchIDEXT.xy), newColor);
 }

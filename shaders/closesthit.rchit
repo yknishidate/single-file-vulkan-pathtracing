@@ -5,7 +5,7 @@ struct HitPayload
 {
     vec3 position;
     vec3 normal;
-    vec3 emittion;
+    vec3 emission;
     vec3 brdf;
     bool done;
 };
@@ -68,7 +68,7 @@ void main()
 
     Face face = unpackFace(gl_PrimitiveID);
     payLoad.brdf = face.diffuse / M_PI;
-    payLoad.emittion = face.emission;
+    payLoad.emission = face.emission * 2.0;
     payLoad.position = pos;
     payLoad.normal = normal;
 }
