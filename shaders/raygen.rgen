@@ -123,16 +123,15 @@ void main()
                 tmax,
                 0     // payloadLocation
             );
-            color += payLoad.emittion;
-            // if(payLoad.done){
-            //     color += weight * payLoad.emittion;
-            //     break;
-            // }
-            // vec2 randVal = vec2(rand(seed), rand(seed));
-            // origin = vec4(payLoad.position + payLoad.normal * 0.001, 1.0);
-            // direction = vec4(sampleDirection(randVal, payLoad.normal), 1.0);
-            // float pdf = 1.0 / (2.0 * M_PI);
-            // weight *= payLoad.brdf * dot(direction.xyz, payLoad.normal) / pdf;
+            if(payLoad.done){
+                break;
+            }
+            color += weight * payLoad.emittion;
+            vec2 randVal = vec2(rand(seed), rand(seed));
+            origin = vec4(payLoad.position + payLoad.normal * 0.001, 1.0);
+            direction = vec4(sampleDirection(randVal, payLoad.normal), 1.0);
+            float pdf = 1.0 / (2.0 * M_PI);
+            weight *= payLoad.brdf * dot(direction.xyz, payLoad.normal) / pdf;
         }
     }
     color /= maxSamples;

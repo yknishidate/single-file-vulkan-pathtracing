@@ -12,7 +12,7 @@ struct HitPayload
 
 layout(binding = 3, set = 0) buffer Vertices{float v[];} vertices;
 layout(binding = 4, set = 0) buffer Indices{uint i[];} indices;
-layout(binding = 5, set = 0) buffer Material{float m[];} materials;
+layout(binding = 5, set = 0) buffer Materials{float m[];} materials;
 
 layout(location = 0) rayPayloadInEXT HitPayload payLoad;
 hitAttributeEXT vec3 attribs;
@@ -24,13 +24,29 @@ struct Vertex
     vec3 pos;
 };
 
+struct Material
+{
+    vec3 diffuse;
+    vec3 emission;
+};
+
 Vertex unpack(uint index)
 {
-    uint vertexSize = 3;
-    uint offset = index * vertexSize;
+    uint stride = 3;
+    uint offset = index * stride;
     Vertex v;
     v.pos = vec3(vertices.v[offset +  0], vertices.v[offset +  1], vertices.v[offset + 2]);
     return v;
+}
+
+Material unpackMaterial(uint index)
+{
+    uint stride = 6;
+    uint offset = index * stride;
+    Material m;
+    m.diffuse = vec3(materials.m[offset +  0], materials.m[offset +  1], materials.m[offset + 2]);
+    m.emission = vec3(materials.m[offset +  3], materials.m[offset +  4], materials.m[offset + 5]);
+    return m;
 }
 
 vec3 calcNormal(Vertex v0, Vertex v1, Vertex v2)
@@ -50,9 +66,12 @@ void main()
     vec3 pos = v0.pos * barycentricCoords.x + v1.pos * barycentricCoords.y + v2.pos * barycentricCoords.z;
     vec3 normal = calcNormal(v0, v1, v2);
 
-            payLoad.brdf = colors[materialID] / M_PI;
-        payLoad.position = pos;
-        payLoad.normal = normal;
+    Material mat = unpackMaterial(gl_PrimitiveID);
+    payLoad.brdf = mat.diffuse / M_PI;
+    payLoad.position = pos;
+    payLoad.normal = normal;
+    payLoad.emittion = mat.emission;
+
     // int materialID = materials.m[gl_PrimitiveID];
     // if(materialID == LIGHT){
     //     payLoad.emittion = vec3(3.0);
