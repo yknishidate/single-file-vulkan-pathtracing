@@ -83,8 +83,6 @@ void setImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
     cmdBuf.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, barrier);
 }
 
-
-
 std::vector<char> readFile(const std::string& filename)
 {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -307,11 +305,6 @@ struct Context
         return std::move(device->allocateDescriptorSetsUnique({ *descPool, descSetLayout }).front());
     }
 
-    static uint32_t getImageCount()
-    {
-        return swapchainImages.size();
-    }
-
     static inline GLFWwindow* window;
     static inline vk::UniqueInstance instance;
     static inline vk::UniqueDebugUtilsMessengerEXT messenger;
@@ -360,6 +353,12 @@ struct Buffer
         }
 
         bufferInfo = vk::DescriptorBufferInfo{ *buffer, 0, size };
+    }
+
+    template <typename T>
+    void create(std::vector<T> data, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryProps)
+    {
+        create(sizeof(T) * data.size(), usage, memoryProps, data.data());
     }
 };
 
@@ -525,8 +524,8 @@ private:
 
     void initVulkan()
     {
-        createImage(inputImage);
-        createImage(outputImage);
+        inputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
+        outputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
         loadMesh();
         createMeshBuffers();
         createBottomLevelAS();
@@ -535,7 +534,7 @@ private:
         createRayTracingPipeLine();
         createShaderBindingTable();
         createDescriptorSets();
-        drawCommandBuffers = Context::allocateCommandBuffers(Context::getImageCount());
+        drawCommandBuffers = Context::allocateCommandBuffers(Context::swapchainImages.size());
         createSyncObjects();
     }
 
@@ -549,11 +548,6 @@ private:
             }
         }
         Context::device->waitIdle();
-    }
-
-    void createImage(Image& image)
-    {
-        image.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
     }
 
     void loadMesh()
@@ -589,16 +583,12 @@ private:
 
     void createMeshBuffers()
     {
-        vk::BufferUsageFlags usage{
-            vkBU::eAccelerationStructureBuildInputReadOnlyKHR
-            | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress };
-        vk::MemoryPropertyFlags properties{ vkMP::eHostVisible | vkMP::eHostCoherent };
+        vk::BufferUsageFlags usage{ vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress };
+        vk::MemoryPropertyFlags memoryProps{ vkMP::eHostVisible | vkMP::eHostCoherent };
 
-        vertexBuffer.create(vertices.size() * sizeof(Vertex), usage, properties, vertices.data());
-
-        indexBuffer.create(indices.size() * sizeof(uint32_t), usage, properties, indices.data());
-
-        primitiveBuffer.create(primitiveMaterials.size() * sizeof(int), vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, properties, primitiveMaterials.data());
+        vertexBuffer.create(vertices, usage, memoryProps);
+        indexBuffer.create(indices, usage, memoryProps);
+        primitiveBuffer.create(primitiveMaterials, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, memoryProps);
     }
 
     void createBottomLevelAS()
@@ -762,28 +752,6 @@ private:
         Context::device->updateDescriptorSets(writes, nullptr);
     }
 
-    vk::WriteDescriptorSet createImageWrite(vk::DescriptorImageInfo imageInfo, vk::DescriptorType type, uint32_t binding)
-    {
-        vk::WriteDescriptorSet imageWrite{};
-        imageWrite.setDstSet(*descSet);
-        imageWrite.setDescriptorType(type);
-        imageWrite.setDescriptorCount(1);
-        imageWrite.setDstBinding(binding);
-        imageWrite.setImageInfo(imageInfo);
-        return imageWrite;
-    }
-
-    vk::WriteDescriptorSet createBufferWrite(vk::DescriptorBufferInfo bufferInfo, vk::DescriptorType type, uint32_t binding)
-    {
-        vk::WriteDescriptorSet bufferWrite{};
-        bufferWrite.setDstSet(*descSet);
-        bufferWrite.setDescriptorType(type);
-        bufferWrite.setDescriptorCount(1);
-        bufferWrite.setDstBinding(binding);
-        bufferWrite.setBufferInfo(bufferInfo);
-        return bufferWrite;
-    }
-
     void recordCommandBuffers(vk::CommandBuffer commandBuffer, vk::Image swapchainImage)
     {
         commandBuffer.begin(vk::CommandBufferBeginInfo{});
@@ -828,7 +796,6 @@ private:
         cmdBuf.copyImage(srcImage, vkIL::eTransferSrcOptimal,
                          dstImage, vkIL::eTransferDstOptimal, copyRegion);
     }
-
 
     void createSyncObjects()
     {
