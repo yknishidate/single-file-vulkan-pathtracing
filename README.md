@@ -19,7 +19,7 @@ See [Vulkan Tutorial / Development environment](https://vulkan-tutorial.com/Deve
 ### CMake
 
 ```
-git clone --recursive https://github.com/nishidate-yuki/single-file-vulkan-pathtracing.git
+git clone --recursive https://github.com/yknishidate/single-file-vulkan-pathtracing
 cd single-file-vulkan-pathtracing
 cmake . -Bbuild
 ```
