@@ -514,18 +514,16 @@ public:
     }
 
 private:
-    std::vector<vk::UniqueCommandBuffer> drawCommandBuffers;
-
     Image inputImage;
     Image outputImage;
 
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
+    std::vector<Face> faces;
     Buffer vertexBuffer;
     Buffer indexBuffer;
-
-    std::vector<Face> faces;
     Buffer faceBuffer;
+    PushConstants pushConstants;
 
     Accel bottomAccel;
     Accel topAccel;
@@ -549,12 +547,11 @@ private:
 
     vk::UniqueDescriptorSet descSet;
 
+    std::vector<vk::UniqueCommandBuffer> drawCommandBuffers;
     std::vector<vk::UniqueSemaphore> imageAvailableSemaphores;
     std::vector<vk::UniqueSemaphore> renderFinishedSemaphores;
     std::vector<vk::Fence> inFlightFences;
     size_t currentFrame = 0;
-
-    PushConstants pushConstants;
 
     void initVulkan()
     {
@@ -740,11 +737,7 @@ private:
     void createDescriptorSets()
     {
         descSet = Context::allocateDescSet(*descSetLayout);
-        updateDescSet();
-    }
 
-    void updateDescSet()
-    {
         std::vector<vk::WriteDescriptorSet> writes(bindings.size());
         for (int i = 0; i < bindings.size(); i++) {
             writes[i].setDstSet(*descSet);
