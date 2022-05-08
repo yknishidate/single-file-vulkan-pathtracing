@@ -14,6 +14,5 @@ layout(location = 0) rayPayloadInEXT HitPayload payLoad;
 
 void main()
 {
-    payLoad.emittion = vec3(0.0);
     payLoad.done = true;
 }

@@ -102,8 +102,8 @@ void main()
         const vec2 inUV = screenPos / vec2(gl_LaunchSizeEXT.xy);
         vec2 d = inUV * 2.0 - 1.0;
 
-        vec4 origin = vec4(0, 0, 5, 1);
-        vec4 target = vec4(d.x, d.y, 2, 1) ;
+        vec4 origin = vec4(0, -1, 5, 1);
+        vec4 target = vec4(d.x, d.y - 1, 2, 1) ;
         vec4 direction = vec4(normalize(target.xyz - origin.xyz), 0) ;
 
         vec3 weight = vec3(1.0);
@@ -123,15 +123,16 @@ void main()
                 tmax,
                 0     // payloadLocation
             );
-            if(payLoad.done){
-                color += weight * payLoad.emittion;
-                break;
-            }
-            vec2 randVal = vec2(rand(seed), rand(seed));
-            origin = vec4(payLoad.position + payLoad.normal * 0.001, 1.0);
-            direction = vec4(sampleDirection(randVal, payLoad.normal), 1.0);
-            float pdf = 1.0 / (2.0 * M_PI);
-            weight *= payLoad.brdf * dot(direction.xyz, payLoad.normal) / pdf;
+            color += payLoad.emittion;
+            // if(payLoad.done){
+            //     color += weight * payLoad.emittion;
+            //     break;
+            // }
+            // vec2 randVal = vec2(rand(seed), rand(seed));
+            // origin = vec4(payLoad.position + payLoad.normal * 0.001, 1.0);
+            // direction = vec4(sampleDirection(randVal, payLoad.normal), 1.0);
+            // float pdf = 1.0 / (2.0 * M_PI);
+            // weight *= payLoad.brdf * dot(direction.xyz, payLoad.normal) / pdf;
         }
     }
     color /= maxSamples;

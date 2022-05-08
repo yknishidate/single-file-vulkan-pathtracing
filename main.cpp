@@ -7,8 +7,10 @@
 #include <functional>
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
+#define TINYOBJLOADER_IMPLEMENTATION
 #include <vulkan/vulkan.hpp>
 #include <GLFW/glfw3.h>
+#include <tiny_obj_loader.h>
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -21,7 +23,7 @@ using vkIL = vk::ImageLayout;
 constexpr int WIDTH = 1024;
 constexpr int HEIGHT = 1024;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-const std::string ASSET_PATH = "../assets/CornellBox.obj";
+const std::string ASSET_PATH = "../assets/CornellBox-Original.obj";
 
 // ----------------------------------------------------------------------------------------------------------
 // Functions
@@ -83,6 +85,60 @@ void setImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
     cmdBuf.pipelineBarrier(srcStageMask, dstStageMask, {}, {}, {}, barrier);
 }
 
+struct Vertex
+{
+    float pos[3];
+};
+
+struct Material
+{
+    float diffuse[3];
+    float emission[3];
+};
+
+void loadFromFile(const std::string& filepath,
+                  std::vector<Vertex>& vertices,
+                  std::vector<uint32_t>& indices,
+                  std::vector<Material>& primitiveMaterials)
+{
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filepath.c_str(), "../assets")) {
+        throw std::runtime_error(warn + err);
+    }
+
+    for (const auto& shape : shapes) {
+        for (const auto& index : shape.mesh.indices) {
+            Vertex vertex{};
+            vertex.pos[0] = attrib.vertices[3 * index.vertex_index + 0];
+            vertex.pos[1] = -attrib.vertices[3 * index.vertex_index + 1];
+            vertex.pos[2] = attrib.vertices[3 * index.vertex_index + 2];
+
+            //vertex.normal = {
+            //    attrib.normals[3 * index.normal_index + 0],
+            //   -attrib.normals[3 * index.normal_index + 1],
+            //    attrib.normals[3 * index.normal_index + 2],
+            //};
+
+            vertices.push_back(vertex);
+            indices.push_back(indices.size());
+        }
+        for (const auto& matIndex : shape.mesh.material_ids) {
+            Material mat;
+            mat.diffuse[0] = materials[matIndex].diffuse[0];
+            mat.diffuse[1] = materials[matIndex].diffuse[1];
+            mat.diffuse[2] = materials[matIndex].diffuse[2];
+            mat.emission[0] = materials[matIndex].emission[0];
+            mat.emission[1] = materials[matIndex].emission[1];
+            mat.emission[2] = materials[matIndex].emission[2];
+            primitiveMaterials.push_back(mat);
+        }
+    }
+}
+
 std::vector<char> readFile(const std::string& filename)
 {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -98,21 +154,21 @@ std::vector<char> readFile(const std::string& filename)
     return buffer;
 }
 
-std::vector<std::string> split(std::string& str, char separator)
-{
-    std::vector<std::string> list;
-    size_t offset = 0;
-    while (1) {
-        auto pos = str.find(separator, offset);
-        if (pos == std::string::npos) {
-            list.push_back(str.substr(offset));
-            break;
-        }
-        list.push_back(str.substr(offset, pos - offset));
-        offset = pos + 1;
-    }
-    return list;
-}
+//std::vector<std::string> split(std::string& str, char separator)
+//{
+//    std::vector<std::string> list;
+//    size_t offset = 0;
+//    while (1) {
+//        auto pos = str.find(separator, offset);
+//        if (pos == std::string::npos) {
+//            list.push_back(str.substr(offset));
+//            break;
+//        }
+//        list.push_back(str.substr(offset, pos - offset));
+//        offset = pos + 1;
+//    }
+//    return list;
+//}
 
 struct Context
 {
@@ -414,16 +470,6 @@ struct Image
     }
 };
 
-enum class Material : int
-{
-    White, Red, Green, Light
-};
-
-struct Vertex
-{
-    float pos[3];
-};
-
 struct Accel
 {
     vk::UniqueAccelerationStructureKHR handle;
@@ -563,33 +609,34 @@ private:
 
     void loadMesh()
     {
-        std::ifstream file(ASSET_PATH);
-        if (!file.is_open()) {
-            throw std::runtime_error("failed to open file!");
-        }
+        loadFromFile(ASSET_PATH, vertices, indices, primitiveMaterials);
+        //std::ifstream file(ASSET_PATH);
+        //if (!file.is_open()) {
+        //    throw std::runtime_error("failed to open file!");
+        //}
 
-        std::string line;
-        Material currentMaterial = Material::White;
-        while (std::getline(file, line)) {
-            std::vector<std::string> list = split(line, ' ');
-            if (list[0] == "v") {
-                vertices.push_back(Vertex{ stof(list[1]), -stof(list[2]), stof(list[3]) });
-            }
-            if (list[0] == "usemtl") {
-                if (list[1] == "White") currentMaterial = Material::White;
-                if (list[1] == "Red")   currentMaterial = Material::Red;
-                if (list[1] == "Green") currentMaterial = Material::Green;
-                if (list[1] == "Light") currentMaterial = Material::Light;
-            }
-            if (list[0] == "f") {
-                for (int i = 1; i <= 3; i++) {
-                    std::vector<std::string> vertAttrs = split(list[i], '/');
-                    int vertIndex = stoi(vertAttrs[0]) - 1;
-                    indices.push_back(static_cast<uint32_t>(vertIndex));
-                }
-                primitiveMaterials.push_back(currentMaterial);
-            }
-        }
+        //std::string line;
+        //Material currentMaterial = Material::White;
+        //while (std::getline(file, line)) {
+        //    std::vector<std::string> list = split(line, ' ');
+        //    if (list[0] == "v") {
+        //        vertices.push_back(Vertex{ stof(list[1]), -stof(list[2]), stof(list[3]) });
+        //    }
+        //    if (list[0] == "usemtl") {
+        //        if (list[1] == "White") currentMaterial = Material::White;
+        //        if (list[1] == "Red")   currentMaterial = Material::Red;
+        //        if (list[1] == "Green") currentMaterial = Material::Green;
+        //        if (list[1] == "Light") currentMaterial = Material::Light;
+        //    }
+        //    if (list[0] == "f") {
+        //        for (int i = 1; i <= 3; i++) {
+        //            std::vector<std::string> vertAttrs = split(list[i], '/');
+        //            int vertIndex = stoi(vertAttrs[0]) - 1;
+        //            indices.push_back(static_cast<uint32_t>(vertIndex));
+        //        }
+        //        primitiveMaterials.push_back(currentMaterial);
+        //    }
+        //}
     }
 
     void createMeshBuffers()

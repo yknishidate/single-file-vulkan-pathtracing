@@ -12,4 +12,5 @@ add_executable(single-file-vulkan-pathtracing main.cpp)
 target_link_libraries(${PROJECT_NAME} PUBLIC glfw)
 target_include_directories(${PROJECT_NAME} PUBLIC 
     "$ENV{VULKAN_SDK}/Include"
+    "${PROJECT_SOURCE_DIR}/external/tinyobjloader"
 )

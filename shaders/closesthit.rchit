@@ -12,7 +12,7 @@ struct HitPayload
 
 layout(binding = 3, set = 0) buffer Vertices{float v[];} vertices;
 layout(binding = 4, set = 0) buffer Indices{uint i[];} indices;
-layout(binding = 5, set = 0) buffer Material{int m[];} materials;
+layout(binding = 5, set = 0) buffer Material{float m[];} materials;
 
 layout(location = 0) rayPayloadInEXT HitPayload payLoad;
 hitAttributeEXT vec3 attribs;
@@ -40,15 +40,8 @@ vec3 calcNormal(Vertex v0, Vertex v1, Vertex v2)
     return -normalize(cross(e01, e02));
 }
 
-int WHITE  = 0;
-int RED    = 1;
-int GREEN  = 2;
-int LIGHT  = 3;
-
 void main()
 {
-    vec3 colors[] = { vec3(0.9, 0.9, 0.9), vec3(1.0, 0.5, 0.5), vec3(0.5, 1.0, 0.5), vec3(1.0, 1.0, 1.0) };
-
     Vertex v0 = unpack(indices.i[3 * gl_PrimitiveID + 0]);
     Vertex v1 = unpack(indices.i[3 * gl_PrimitiveID + 1]);
     Vertex v2 = unpack(indices.i[3 * gl_PrimitiveID + 2]);
@@ -57,13 +50,16 @@ void main()
     vec3 pos = v0.pos * barycentricCoords.x + v1.pos * barycentricCoords.y + v2.pos * barycentricCoords.z;
     vec3 normal = calcNormal(v0, v1, v2);
 
-    int materialID = materials.m[gl_PrimitiveID];
-    if(materialID == LIGHT){
-        payLoad.emittion = vec3(3.0);
-        payLoad.done = true;
-    }else{
-        payLoad.brdf = colors[materialID] / M_PI;
+            payLoad.brdf = colors[materialID] / M_PI;
         payLoad.position = pos;
         payLoad.normal = normal;
-    }
+    // int materialID = materials.m[gl_PrimitiveID];
+    // if(materialID == LIGHT){
+    //     payLoad.emittion = vec3(3.0);
+    //     payLoad.done = true;
+    // }else{
+    //     payLoad.brdf = colors[materialID] / M_PI;
+    //     payLoad.position = pos;
+    //     payLoad.normal = normal;
+    // }
 }
