@@ -1,8 +1,6 @@
 # Single File Vulkan Pathtracing
 
-Minimal pathtracer using Vulkan RayTracing
-
-![image](https://user-images.githubusercontent.com/30839669/166169596-d3a30a02-0e2a-4a37-a08b-4cba5315486c.png)
+![image](https://user-images.githubusercontent.com/30839669/167279645-c56a70ac-8941-4a2b-ba1c-05a5d03c3d27.png)
 
 # Environment
 
@@ -10,6 +8,7 @@ Minimal pathtracer using Vulkan RayTracing
 -   GPU / Driver that support Vulkan Ray Tracing
 -   C++17
 -   GLFW
+-   CMake
 
 ## Setup
 
@@ -17,7 +16,7 @@ Minimal pathtracer using Vulkan RayTracing
 
 See [Vulkan Tutorial / Development environment](https://vulkan-tutorial.com/Development_environment)
 
-### cmake
+### CMake
 
 ```
 git clone --recursive https://github.com/nishidate-yuki/single-file-vulkan-pathtracing.git
