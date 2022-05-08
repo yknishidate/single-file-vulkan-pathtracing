@@ -14,7 +14,7 @@ layout(binding = 2, set = 0) buffer Vertices{float v[];} vertices;
 layout(binding = 3, set = 0) buffer Indices{uint i[];} indices;
 layout(binding = 4, set = 0) buffer Faces{float f[];} faces;
 
-layout(location = 0) rayPayloadInEXT HitPayload payLoad;
+layout(location = 0) rayPayloadInEXT HitPayload payload;
 hitAttributeEXT vec3 attribs;
 
 const highp float M_PI = 3.14159265358979323846;
@@ -67,8 +67,8 @@ void main()
     vec3 normal = calcNormal(v0, v1, v2);
 
     Face face = unpackFace(gl_PrimitiveID);
-    payLoad.brdf = face.diffuse / M_PI;
-    payLoad.emission = face.emission * 2.0;
-    payLoad.position = pos;
-    payLoad.normal = normal;
+    payload.brdf = face.diffuse / M_PI;
+    payload.emission = face.emission * 2.0;
+    payload.position = pos;
+    payload.normal = normal;
 }

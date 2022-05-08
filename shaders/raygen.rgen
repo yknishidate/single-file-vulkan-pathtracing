@@ -16,7 +16,7 @@ layout(push_constant) uniform PushConstants {
     int frame;
 } pushConstants;
 
-layout(location = 0) rayPayloadEXT HitPayload payLoad;
+layout(location = 0) rayPayloadEXT HitPayload payload;
 
 const highp float M_PI = 3.14159265358979323846;
 
@@ -92,7 +92,7 @@ void main()
         vec4 direction = vec4(normalize(target.xyz - origin.xyz), 0) ;
 
         vec3 weight = vec3(1.0);
-        payLoad.done = false;
+        payload.done = false;
 
         for(uint depth = 0; depth < 8; depth++){
             traceRayEXT(
@@ -108,12 +108,12 @@ void main()
                 10000.0,
                 0     // payloadLocation
             );
-            color += weight * payLoad.emission;
-            origin.xyz = payLoad.position + payLoad.normal * 0.001;
-            direction.xyz = sampleDirection(rand(seed), rand(seed), payLoad.normal);
+            color += weight * payload.emission;
+            origin.xyz = payload.position + payload.normal * 0.001;
+            direction.xyz = sampleDirection(rand(seed), rand(seed), payload.normal);
             float pdf = 1.0 / (2.0 * M_PI);
-            weight *= payLoad.brdf * dot(direction.xyz, payLoad.normal) / pdf;
-            if(payLoad.done){
+            weight *= payload.brdf * dot(direction.xyz, payload.normal) / pdf;
+            if(payload.done){
                 break;
             }
         }

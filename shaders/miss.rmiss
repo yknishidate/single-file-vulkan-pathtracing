@@ -10,10 +10,10 @@ struct HitPayload
     bool done;
 };
 
-layout(location = 0) rayPayloadInEXT HitPayload payLoad;
+layout(location = 0) rayPayloadInEXT HitPayload payload;
 
 void main()
 {
-    payLoad.emission = vec3(0.7, 0.6, 0.5);
-    payLoad.done = true;
+    payload.emission = vec3(0.7, 0.6, 0.5);
+    payload.done = true;
 }

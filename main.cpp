@@ -270,9 +270,8 @@ struct Context
         {
             std::vector<vk::DescriptorPoolSize> poolSizes{
                 {vkDT::eAccelerationStructureKHR, 1},
-                {vkDT::eStorageImage, 2},
-                {vkDT::eStorageBuffer, 3},
-                {vkDT::eUniformBuffer, 1} };
+                {vkDT::eStorageImage, 1},
+                {vkDT::eStorageBuffer, 3} };
 
             vk::DescriptorPoolCreateInfo poolInfo;
             poolInfo.setPoolSizes(poolSizes);
@@ -365,9 +364,15 @@ struct Buffer
     uint64_t deviceAddress;
     vk::DescriptorBufferInfo bufferInfo;
 
-    void create(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryProps, void* data = nullptr)
+    void create(vk::BufferUsageFlags usage, vk::DeviceSize size, void* data = nullptr)
     {
         buffer = Context::device->createBufferUnique({ {}, size, usage });
+
+        // If it is necessary to copy, memory should be allocated on the host.
+        vk::MemoryPropertyFlags memoryProps = vk::MemoryPropertyFlagBits::eDeviceLocal;
+        if (data) {
+            memoryProps = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
+        }
 
         // Allocate memory
         vk::MemoryRequirements requirements = Context::device->getBufferMemoryRequirements(*buffer);
@@ -395,9 +400,9 @@ struct Buffer
     }
 
     template <typename T>
-    void create(std::vector<T> data, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryProps)
+    void create(vk::BufferUsageFlags usage, std::vector<T> data)
     {
-        create(sizeof(T) * data.size(), usage, memoryProps, data.data());
+        create(usage, sizeof(T) * data.size(), data.data());
     }
 };
 
@@ -475,7 +480,7 @@ private:
         vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = Context::device->getAccelerationStructureBuildSizesKHR(
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
         size = buildSizesInfo.accelerationStructureSize;
-        buffer.create(size, vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress, vkMP::eDeviceLocal);
+        buffer.create(vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress, size);
 
         // Create accel
         vk::AccelerationStructureCreateInfoKHR createInfo;
@@ -486,7 +491,7 @@ private:
 
         // Build
         Buffer scratchBuffer;
-        scratchBuffer.create(size, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, vkMP::eDeviceLocal);
+        scratchBuffer.create(vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, size);
         buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
         buildGeometryInfo.setDstAccelerationStructure(*accel);
 
@@ -588,11 +593,9 @@ private:
     void createMeshBuffers()
     {
         vk::BufferUsageFlags usage{ vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress };
-        vk::MemoryPropertyFlags memoryProps{ vkMP::eHostVisible | vkMP::eHostCoherent };
-
-        vertexBuffer.create(vertices, usage, memoryProps);
-        indexBuffer.create(indices, usage, memoryProps);
-        faceBuffer.create(faces, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, memoryProps);
+        vertexBuffer.create(usage, vertices);
+        indexBuffer.create(usage, indices);
+        faceBuffer.create(vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, faces);
     }
 
     void createBottomLevelAS()
@@ -628,9 +631,8 @@ private:
         asInstance.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 
         Buffer instancesBuffer;
-        instancesBuffer.create(sizeof(vk::AccelerationStructureInstanceKHR),
-                               vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eShaderDeviceAddress,
-                               vkMP::eHostVisible | vkMP::eHostCoherent, &asInstance);
+        instancesBuffer.create(vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eShaderDeviceAddress,
+                               sizeof(vk::AccelerationStructureInstanceKHR), &asInstance);
 
         vk::AccelerationStructureGeometryInstancesDataKHR instancesData;
         instancesData.setArrayOfPointers(false);
@@ -724,11 +726,9 @@ private:
         }
 
         vk::BufferUsageFlags usage = vkBU::eShaderBindingTableKHR | vkBU::eTransferSrc | vkBU::eShaderDeviceAddress;
-        vk::MemoryPropertyFlags properties = vkMP::eHostVisible | vkMP::eHostCoherent;
-
-        raygenSBT.create(handleSize, usage, properties, shaderHandleStorage.data() + 0 * handleSizeAligned);
-        missSBT.create(handleSize, usage, properties, shaderHandleStorage.data() + 1 * handleSizeAligned);
-        hitSBT.create(handleSize, usage, properties, shaderHandleStorage.data() + 2 * handleSizeAligned);
+        raygenSBT.create(usage, handleSize, shaderHandleStorage.data() + 0 * handleSizeAligned);
+        missSBT.create(usage, handleSize, shaderHandleStorage.data() + 1 * handleSizeAligned);
+        hitSBT.create(usage, handleSize, shaderHandleStorage.data() + 2 * handleSizeAligned);
 
         uint32_t stride = rtProperties.shaderGroupHandleAlignment;
         uint32_t size = rtProperties.shaderGroupHandleAlignment;
