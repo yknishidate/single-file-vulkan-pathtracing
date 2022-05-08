@@ -359,6 +359,7 @@ struct Buffer
 
         vk::BufferDeviceAddressInfoKHR bufferDeviceAI{ *buffer };
         deviceAddress = Context::device->getBufferAddressKHR(&bufferDeviceAI);
+        bufferInfo = vk::DescriptorBufferInfo{ *buffer, 0, size };
     }
 
     void copy(void* data)
@@ -368,18 +369,6 @@ struct Buffer
         }
         memcpy(mapped, data, static_cast<size_t>(size));
     }
-
-    vk::WriteDescriptorSet createWrite(vk::DescriptorSet& descSet, vk::DescriptorType type, uint32_t binding)
-    {
-        bufferInfo = vk::DescriptorBufferInfo{ *buffer, 0, size };
-        vk::WriteDescriptorSet bufferWrite;
-        bufferWrite.setDstSet(descSet);
-        bufferWrite.setDescriptorType(type);
-        bufferWrite.setDescriptorCount(1);
-        bufferWrite.setDstBinding(binding);
-        bufferWrite.setBufferInfo(bufferInfo);
-        return bufferWrite;
-    }
 };
 
 struct Image
@@ -387,16 +376,11 @@ struct Image
     vk::UniqueImage image;
     vk::UniqueImageView view;
     vk::UniqueDeviceMemory memory;
-    vk::Extent2D extent;
-    vk::Format format;
-    vk::ImageLayout imageLayout;
     vk::DescriptorImageInfo imageInfo;
 
     void create(vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage)
     {
-        this->extent = extent;
-        this->format = format;
-
+        // Create image
         vk::ImageCreateInfo createInfo;
         createInfo.setImageType(vk::ImageType::e2D);
         createInfo.setExtent({ extent.width, extent.height, 1 });
@@ -420,18 +404,13 @@ struct Image
         viewInfo.setFormat(format);
         viewInfo.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
         view = Context::device->createImageViewUnique(viewInfo);
-    }
 
-    vk::WriteDescriptorSet createWrite(vk::DescriptorSet& descSet, vk::DescriptorType type, uint32_t binding)
-    {
-        imageInfo = vk::DescriptorImageInfo{ {}, *view, imageLayout };
-        vk::WriteDescriptorSet imageWrite;
-        imageWrite.setDstSet(descSet);
-        imageWrite.setDescriptorType(type);
-        imageWrite.setDescriptorCount(1);
-        imageWrite.setDstBinding(binding);
-        imageWrite.setImageInfo(imageInfo);
-        return imageWrite;
+        // Set image layout
+        imageInfo = { {}, *view, vk::ImageLayout::eGeneral };
+        Context::oneTimeSubmit(
+            [&](vk::CommandBuffer cmdBuf) {
+                setImageLayout(cmdBuf, *image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
+            });
     }
 };
 
@@ -451,6 +430,7 @@ struct Accel
     Buffer buffer;
     vk::DeviceSize size;
     uint64_t deviceAddress;
+    vk::WriteDescriptorSetAccelerationStructureKHR accelInfo;
 
     void create(vk::AccelerationStructureGeometryKHR geometry,
                 vk::AccelerationStructureTypeKHR type, uint32_t primitiveCount)
@@ -484,6 +464,8 @@ struct Accel
             [&](vk::CommandBuffer commandBuffer) {
                 commandBuffer.buildAccelerationStructuresKHR(buildGeometryInfo, &buildRangeInfo);
             });
+
+        accelInfo = vk::WriteDescriptorSetAccelerationStructureKHR{ *handle };
     }
 };
 
@@ -534,6 +516,7 @@ private:
     vk::UniquePipeline pipeline;
     vk::UniquePipelineLayout pipelineLayout;
     vk::UniqueDescriptorSetLayout descSetLayout;
+    std::vector<vk::DescriptorSetLayoutBinding> bindings;
 
     Buffer raygenSBT;
     Buffer missSBT;
@@ -580,12 +563,6 @@ private:
     {
         image.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
 
-        // Set image layout
-        image.imageLayout = vk::ImageLayout::eGeneral;
-        Context::oneTimeSubmit(
-            [&](vk::CommandBuffer cmdBuf) {
-                setImageLayout(cmdBuf, *image.image, vk::ImageLayout::eUndefined, image.imageLayout);
-            });
     }
 
     void loadMesh()
@@ -717,7 +694,6 @@ private:
 
     void createRayTracingPipeLine()
     {
-        std::vector<vk::DescriptorSetLayoutBinding> bindings;
         using vkSS = vk::ShaderStageFlagBits;
         bindings.push_back({ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }); // Binding = 0 : TLAS
         bindings.push_back({ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
@@ -725,7 +701,6 @@ private:
         bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
         bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
         bindings.push_back({ 5, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Materials
-        bindings.push_back({ 6, vkDT::eUniformBuffer, 1, vkSS::eRaygenKHR });            // Binding = 5 : Uniform data
 
         descSetLayout = Context::device->createDescriptorSetLayoutUnique({ {}, bindings });
 
@@ -789,22 +764,20 @@ private:
 
     void updateDescSet()
     {
-        vk::WriteDescriptorSetAccelerationStructureKHR asInfo{ *topAccel.handle };
-        vk::WriteDescriptorSet asWrite{};
-        asWrite.setDstSet(*descSet);
-        asWrite.setDescriptorType(vkDT::eAccelerationStructureKHR);
-        asWrite.setDescriptorCount(1);
-        asWrite.setDstBinding(0);
-        asWrite.setPNext(&asInfo);
-
-        std::vector<vk::WriteDescriptorSet> writeDescSets;
-        writeDescSets.push_back(asWrite);
-        writeDescSets.push_back(inputImage.createWrite(*descSet, vkDT::eStorageImage, 1));
-        writeDescSets.push_back(outputImage.createWrite(*descSet, vkDT::eStorageImage, 2));
-        writeDescSets.push_back(vertexBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 3));
-        writeDescSets.push_back(indexBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 4));
-        writeDescSets.push_back(primitiveBuffer.createWrite(*descSet, vkDT::eStorageBuffer, 5));
-        Context::device->updateDescriptorSets(writeDescSets, nullptr);
+        std::vector<vk::WriteDescriptorSet> writes(bindings.size());
+        for (int i = 0; i < bindings.size(); i++) {
+            writes[i].setDstSet(*descSet);
+            writes[i].setDescriptorType(bindings[i].descriptorType);
+            writes[i].setDescriptorCount(bindings[i].descriptorCount);
+            writes[i].setDstBinding(bindings[i].binding);
+        }
+        writes[0].setPNext(&topAccel.accelInfo);
+        writes[1].setImageInfo(inputImage.imageInfo);
+        writes[2].setImageInfo(outputImage.imageInfo);
+        writes[3].setBufferInfo(vertexBuffer.bufferInfo);
+        writes[4].setBufferInfo(indexBuffer.bufferInfo);
+        writes[5].setBufferInfo(primitiveBuffer.bufferInfo);
+        Context::device->updateDescriptorSets(writes, nullptr);
     }
 
     vk::WriteDescriptorSet createImageWrite(vk::DescriptorImageInfo imageInfo, vk::DescriptorType type, uint32_t binding)
