@@ -224,8 +224,8 @@ struct Context
             swapchainInfo.setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity);
             swapchainInfo.setPresentMode(vk::PresentModeKHR::eFifo);
             swapchainInfo.setClipped(true);
-            swapChain = device->createSwapchainKHRUnique(swapchainInfo);
-            swapchainImages = device->getSwapchainImagesKHR(*swapChain);
+            swapchain = device->createSwapchainKHRUnique(swapchainInfo);
+            swapchainImages = device->getSwapchainImagesKHR(*swapchain);
         }
 
         // Create command pool
@@ -305,6 +305,15 @@ struct Context
         return std::move(device->allocateDescriptorSetsUnique({ *descPool, descSetLayout }).front());
     }
 
+    static uint32_t acquireNextImage(vk::Semaphore semaphore)
+    {
+        auto res = Context::device->acquireNextImageKHR(*swapchain, UINT64_MAX, semaphore);
+        if (res.result != vk::Result::eSuccess) {
+            throw std::runtime_error("failed to acquire next image!");
+        }
+        return res.value;
+    }
+
     static inline GLFWwindow* window;
     static inline vk::UniqueInstance instance;
     static inline vk::UniqueDebugUtilsMessengerEXT messenger;
@@ -314,7 +323,7 @@ struct Context
     static inline uint32_t queueFamily;
     static inline vk::Queue queue;
     static inline vk::UniqueCommandPool commandPool;
-    static inline vk::UniqueSwapchainKHR swapChain;
+    static inline vk::UniqueSwapchainKHR swapchain;
     static inline std::vector<vk::Image> swapchainImages;
     static inline vk::UniqueDescriptorPool descPool;
 };
@@ -482,8 +491,6 @@ public:
     }
 
 private:
-    vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rtProperties;
-
     std::vector<vk::UniqueCommandBuffer> drawCommandBuffers;
 
     Image inputImage;
@@ -512,6 +519,10 @@ private:
     Buffer raygenSBT;
     Buffer missSBT;
     Buffer hitSBT;
+
+    vk::StridedDeviceAddressRegionKHR raygenRegion;
+    vk::StridedDeviceAddressRegionKHR missRegion;
+    vk::StridedDeviceAddressRegionKHR hitRegion;
 
     vk::UniqueDescriptorSet descSet;
 
@@ -704,7 +715,7 @@ private:
     {
         // Get Ray Tracing Properties
         using vkRTP = vk::PhysicalDeviceRayTracingPipelinePropertiesKHR;
-        rtProperties = Context::physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vkRTP>().get<vkRTP>();
+        vkRTP rtProperties = Context::physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vkRTP>().get<vkRTP>();
 
         // Calculate SBT size
         uint32_t handleSize = rtProperties.shaderGroupHandleSize;
@@ -726,6 +737,12 @@ private:
         raygenSBT.create(handleSize, usage, properties, shaderHandleStorage.data() + 0 * handleSizeAligned);
         missSBT.create(handleSize, usage, properties, shaderHandleStorage.data() + 1 * handleSizeAligned);
         hitSBT.create(handleSize, usage, properties, shaderHandleStorage.data() + 2 * handleSizeAligned);
+
+        uint32_t stride = rtProperties.shaderGroupHandleAlignment;
+        uint32_t size = rtProperties.shaderGroupHandleAlignment;
+        raygenRegion = vk::StridedDeviceAddressRegionKHR{ raygenSBT.deviceAddress, stride, size };
+        missRegion = vk::StridedDeviceAddressRegionKHR{ missSBT.deviceAddress, stride, size };
+        hitRegion = vk::StridedDeviceAddressRegionKHR{ hitSBT.deviceAddress, stride, size };
     }
 
     void createDescriptorSets()
@@ -758,10 +775,6 @@ private:
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
         commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout, 0, *descSet, nullptr);
         commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(PushConstants), &pushConstants);
-
-        vk::StridedDeviceAddressRegionKHR raygenRegion = createAddressRegion(raygenSBT.deviceAddress);
-        vk::StridedDeviceAddressRegionKHR missRegion = createAddressRegion(missSBT.deviceAddress);
-        vk::StridedDeviceAddressRegionKHR hitRegion = createAddressRegion(hitSBT.deviceAddress);
         commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
 
         setImageLayout(commandBuffer, *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
@@ -774,17 +787,7 @@ private:
         setImageLayout(commandBuffer, *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
         setImageLayout(commandBuffer, *inputImage.image, vkIL::eTransferDstOptimal, vkIL::eGeneral);
         setImageLayout(commandBuffer, swapchainImage, vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
-
         commandBuffer.end();
-    }
-
-    vk::StridedDeviceAddressRegionKHR createAddressRegion(vk::DeviceAddress deviceAddress)
-    {
-        vk::StridedDeviceAddressRegionKHR region{};
-        region.setDeviceAddress(deviceAddress);
-        region.setStride(rtProperties.shaderGroupHandleAlignment);
-        region.setSize(rtProperties.shaderGroupHandleAlignment);
-        return region;
     }
 
     void copyImage(vk::CommandBuffer& cmdBuf, vk::Image& srcImage, vk::Image& dstImage)
@@ -814,7 +817,7 @@ private:
     {
         vk::PresentInfoKHR presentInfo;
         presentInfo.setWaitSemaphores(*renderFinishedSemaphores[currentFrame]);
-        presentInfo.setSwapchains(*Context::swapChain);
+        presentInfo.setSwapchains(*Context::swapchain);
         presentInfo.setImageIndices(imageIndex);
         Context::queue.presentKHR(presentInfo);
     }
@@ -824,8 +827,7 @@ private:
         Context::device->waitForFences(inFlightFences[currentFrame], true, UINT64_MAX);
         Context::device->resetFences(inFlightFences[currentFrame]);
 
-        uint32_t imageIndex = acquireNextImage();
-
+        uint32_t imageIndex = Context::acquireNextImage(*imageAvailableSemaphores[currentFrame]);
         recordCommandBuffers(*drawCommandBuffers[imageIndex], Context::swapchainImages[imageIndex]);
 
         // Submit draw command
@@ -840,15 +842,6 @@ private:
 
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
         pushConstants.frame++;
-    }
-
-    uint32_t acquireNextImage()
-    {
-        auto res = Context::device->acquireNextImageKHR(*Context::swapChain, UINT64_MAX, *imageAvailableSemaphores[currentFrame]);
-        if (res.result != vk::Result::eSuccess) {
-            throw std::runtime_error("failed to acquire next image!");
-        }
-        return res.value;
     }
 };
 
