@@ -1,8 +1,5 @@
-
-#include <set>
 #include <string>
 #include <fstream>
-#include <sstream>
 #include <iostream>
 #include <functional>
 
@@ -14,22 +11,13 @@
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
-using vkBU = vk::BufferUsageFlagBits;
-using vkIU = vk::ImageUsageFlagBits;
-using vkMP = vk::MemoryPropertyFlagBits;
-using vkDT = vk::DescriptorType;
-using vkIL = vk::ImageLayout;
-
 constexpr int WIDTH = 1024;
 constexpr int HEIGHT = 1024;
 
-// ----------------------------------------------------------------------------------------------------------
-// Functions
-// ----------------------------------------------------------------------------------------------------------
 VKAPI_ATTR VkBool32 VKAPI_CALL
 debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                             VkDebugUtilsMessageTypeFlagsEXT messageTypes,
-                            VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData, void* /*pUserData*/)
+                            VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData, void* pUserData)
 {
     std::cerr << pCallbackData->pMessage << "\n\n";
     return VK_FALSE;
@@ -94,8 +82,7 @@ struct Face
     float emission[3];
 };
 
-void loadFromFile(std::vector<Vertex>& vertices,
-                  std::vector<uint32_t>& indices,
+void loadFromFile(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
                   std::vector<Face>& faces)
 {
     tinyobj::attrib_t attrib;
@@ -103,7 +90,8 @@ void loadFromFile(std::vector<Vertex>& vertices,
     std::vector<tinyobj::material_t> materials;
     std::string warn, err;
 
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "../assets/CornellBox-Original.obj", "../assets")) {
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+                          "../assets/CornellBox-Original.obj", "../assets")) {
         throw std::runtime_error(warn + err);
     }
 
@@ -114,7 +102,7 @@ void loadFromFile(std::vector<Vertex>& vertices,
             vertex.pos[1] = -attrib.vertices[3 * index.vertex_index + 1];
             vertex.pos[2] = attrib.vertices[3 * index.vertex_index + 2];
             vertices.push_back(vertex);
-            indices.push_back(indices.size());
+            indices.push_back(static_cast<uint32_t>(indices.size()));
         }
         for (const auto& matIndex : shape.mesh.material_ids) {
             Face face;
@@ -250,7 +238,7 @@ struct Context
             swapchainInfo.setImageColorSpace(vk::ColorSpaceKHR::eSrgbNonlinear);
             swapchainInfo.setImageExtent({ WIDTH, HEIGHT });
             swapchainInfo.setImageArrayLayers(1);
-            swapchainInfo.setImageUsage(vkIU::eTransferDst);
+            swapchainInfo.setImageUsage(vk::ImageUsageFlagBits::eTransferDst);
             swapchainInfo.setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity);
             swapchainInfo.setPresentMode(vk::PresentModeKHR::eFifo);
             swapchainInfo.setClipped(true);
@@ -269,9 +257,9 @@ struct Context
         // Create descriptor pool
         {
             std::vector<vk::DescriptorPoolSize> poolSizes{
-                {vkDT::eAccelerationStructureKHR, 1},
-                {vkDT::eStorageImage, 1},
-                {vkDT::eStorageBuffer, 3} };
+                {vk::DescriptorType::eAccelerationStructureKHR, 1},
+                {vk::DescriptorType::eStorageImage, 1},
+                {vk::DescriptorType::eStorageBuffer, 3} };
 
             vk::DescriptorPoolCreateInfo poolInfo;
             poolInfo.setPoolSizes(poolSizes);
@@ -308,11 +296,11 @@ struct Context
         throw std::runtime_error("failed to find suitable memory type");
     }
 
-    static std::vector<vk::UniqueCommandBuffer> allocateCommandBuffers(uint32_t count)
+    static std::vector<vk::UniqueCommandBuffer> allocateCommandBuffers(size_t count)
     {
         vk::CommandBufferAllocateInfo allocInfo;
         allocInfo.setCommandPool(*commandPool);
-        allocInfo.setCommandBufferCount(count);
+        allocInfo.setCommandBufferCount(static_cast<uint32_t>(count));
         return device->allocateCommandBuffersUnique(allocInfo);
     }
 
@@ -361,18 +349,34 @@ struct Buffer
 {
     vk::UniqueBuffer buffer;
     vk::UniqueDeviceMemory memory;
-    uint64_t deviceAddress;
     vk::DescriptorBufferInfo bufferInfo;
+    uint64_t deviceAddress = 0;
 
-    void create(vk::BufferUsageFlags usage, vk::DeviceSize size, void* data = nullptr)
+    void create(vk::BufferUsageFlags usage, vk::DeviceSize size)
+    {
+        create(usage, vk::MemoryPropertyFlagBits::eDeviceLocal, size);
+    }
+
+    void create(vk::BufferUsageFlags usage, vk::DeviceSize size, void* data)
+    {
+        create(usage, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, size);
+
+        // Copy
+        void* mapped = Context::device->mapMemory(*memory, 0, size);
+        memcpy(mapped, data, static_cast<size_t>(size));
+        Context::device->unmapMemory(*memory);
+    }
+
+    template <typename T>
+    void create(vk::BufferUsageFlags usage, std::vector<T> data)
+    {
+        create(usage, sizeof(T) * data.size(), data.data());
+    }
+
+private:
+    void create(vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryProps, vk::DeviceSize size)
     {
         buffer = Context::device->createBufferUnique({ {}, size, usage });
-
-        // If it is necessary to copy, memory should be allocated on the host.
-        vk::MemoryPropertyFlags memoryProps = vk::MemoryPropertyFlagBits::eDeviceLocal;
-        if (data) {
-            memoryProps = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
-        }
 
         // Allocate memory
         vk::MemoryRequirements requirements = Context::device->getBufferMemoryRequirements(*buffer);
@@ -389,20 +393,7 @@ struct Buffer
         vk::BufferDeviceAddressInfoKHR bufferDeviceAI{ *buffer };
         deviceAddress = Context::device->getBufferAddressKHR(&bufferDeviceAI);
 
-        // Copy
-        if (data) {
-            void* mapped = Context::device->mapMemory(*memory, 0, size);
-            memcpy(mapped, data, static_cast<size_t>(size));
-            Context::device->unmapMemory(*memory);
-        }
-
         bufferInfo = vk::DescriptorBufferInfo{ *buffer, 0, size };
-    }
-
-    template <typename T>
-    void create(vk::BufferUsageFlags usage, std::vector<T> data)
-    {
-        create(usage, sizeof(T) * data.size(), data.data());
     }
 };
 
@@ -453,9 +444,9 @@ struct Accel
 {
     vk::UniqueAccelerationStructureKHR accel;
     Buffer buffer;
-    vk::DeviceSize size;
-    uint64_t deviceAddress;
     vk::WriteDescriptorSetAccelerationStructureKHR accelInfo;
+    uint64_t deviceAddress = 0;
+    vk::DeviceSize size = 0;
 
     void createAsBottom(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount)
     {
@@ -480,7 +471,7 @@ private:
         vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = Context::device->getAccelerationStructureBuildSizesKHR(
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
         size = buildSizesInfo.accelerationStructureSize;
-        buffer.create(vkBU::eAccelerationStructureStorageKHR | vkBU::eShaderDeviceAddress, size);
+        buffer.create(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress, size);
 
         // Create accel
         vk::AccelerationStructureCreateInfoKHR createInfo;
@@ -491,7 +482,7 @@ private:
 
         // Build
         Buffer scratchBuffer;
-        scratchBuffer.create(vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, size);
+        scratchBuffer.create(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress, size);
         buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
         buildGeometryInfo.setDstAccelerationStructure(*accel);
 
@@ -548,6 +539,7 @@ private:
     vk::UniquePipelineLayout pipelineLayout;
     vk::UniqueDescriptorSetLayout descSetLayout;
     std::vector<vk::DescriptorSetLayoutBinding> bindings;
+    vk::UniqueDescriptorSet descSet;
 
     Buffer raygenSBT;
     Buffer missSBT;
@@ -556,8 +548,6 @@ private:
     vk::StridedDeviceAddressRegionKHR raygenRegion;
     vk::StridedDeviceAddressRegionKHR missRegion;
     vk::StridedDeviceAddressRegionKHR hitRegion;
-
-    vk::UniqueDescriptorSet descSet;
 
     std::vector<vk::UniqueCommandBuffer> drawCommandBuffers;
     std::vector<vk::UniqueSemaphore> imageAvailableSemaphores;
@@ -568,7 +558,7 @@ private:
 
     void initVulkan()
     {
-        outputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
+        outputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst);
         loadFromFile(vertices, indices, faces);
         createMeshBuffers();
         createBottomLevelAS();
@@ -592,10 +582,10 @@ private:
 
     void createMeshBuffers()
     {
-        vk::BufferUsageFlags usage{ vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress };
+        vk::BufferUsageFlags usage{ vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR | vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress };
         vertexBuffer.create(usage, vertices);
         indexBuffer.create(usage, indices);
-        faceBuffer.create(vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, faces);
+        faceBuffer.create(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress, faces);
     }
 
     void createBottomLevelAS()
@@ -604,7 +594,7 @@ private:
         triangleData.setVertexFormat(vk::Format::eR32G32B32Sfloat);
         triangleData.setVertexData(vertexBuffer.deviceAddress);
         triangleData.setVertexStride(sizeof(Vertex));
-        triangleData.setMaxVertex(vertices.size());
+        triangleData.setMaxVertex(static_cast<uint32_t>(vertices.size()));
         triangleData.setIndexType(vk::IndexType::eUint32);
         triangleData.setIndexData(indexBuffer.deviceAddress);
 
@@ -613,7 +603,7 @@ private:
         geometry.setGeometry({ triangleData });
         geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
-        uint32_t primitiveCount = indices.size() / 3;
+        uint32_t primitiveCount = static_cast<uint32_t>(indices.size() / 3);
         bottomAccel.createAsBottom(geometry, primitiveCount);
     }
 
@@ -631,7 +621,8 @@ private:
         asInstance.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 
         Buffer instancesBuffer;
-        instancesBuffer.create(vkBU::eAccelerationStructureBuildInputReadOnlyKHR | vkBU::eShaderDeviceAddress,
+        instancesBuffer.create(vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
+                               vk::BufferUsageFlagBits::eShaderDeviceAddress,
                                sizeof(vk::AccelerationStructureInstanceKHR), &asInstance);
 
         vk::AccelerationStructureGeometryInstancesDataKHR instancesData;
@@ -677,6 +668,7 @@ private:
 
     void createRayTracingPipeLine()
     {
+        using vkDT = vk::DescriptorType;
         using vkSS = vk::ShaderStageFlagBits;
         bindings.push_back({ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }); // Binding = 0 : TLAS
         bindings.push_back({ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
@@ -713,22 +705,22 @@ private:
 
         // Calculate SBT size
         uint32_t handleSize = rtProperties.shaderGroupHandleSize;
-        size_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
-        size_t groupCount = shaderGroups.size();
-        size_t sbtSize = groupCount * handleSizeAligned;
+        uint32_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
+        uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
+        uint32_t sbtSize = static_cast<uint32_t>(groupCount * handleSizeAligned);
 
         // Get shader group handles
-        std::vector<uint8_t> shaderHandleStorage(sbtSize);
-        vk::Result res = Context::device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize,
-                                                                             shaderHandleStorage.data());
-        if (res != vk::Result::eSuccess) {
+        std::vector<uint8_t> handleStorage(sbtSize);
+        if (Context::device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize, handleStorage.data()) != vk::Result::eSuccess) {
             throw std::runtime_error("failed to get ray tracing shader group handles.");
         }
 
-        vk::BufferUsageFlags usage = vkBU::eShaderBindingTableKHR | vkBU::eTransferSrc | vkBU::eShaderDeviceAddress;
-        raygenSBT.create(usage, handleSize, shaderHandleStorage.data() + 0 * handleSizeAligned);
-        missSBT.create(usage, handleSize, shaderHandleStorage.data() + 1 * handleSizeAligned);
-        hitSBT.create(usage, handleSize, shaderHandleStorage.data() + 2 * handleSizeAligned);
+        vk::BufferUsageFlags usage =
+            vk::BufferUsageFlagBits::eShaderBindingTableKHR |
+            vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress;
+        raygenSBT.create(usage, handleSize, handleStorage.data() + 0 * handleSizeAligned);
+        missSBT.create(usage, handleSize, handleStorage.data() + 1 * handleSizeAligned);
+        hitSBT.create(usage, handleSize, handleStorage.data() + 2 * handleSizeAligned);
 
         uint32_t stride = rtProperties.shaderGroupHandleAlignment;
         uint32_t size = rtProperties.shaderGroupHandleAlignment;
@@ -764,6 +756,7 @@ private:
         commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(PushConstants), &pushConstants);
         commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
 
+        using vkIL = vk::ImageLayout;
         setImageLayout(commandBuffer, *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
         setImageLayout(commandBuffer, swapchainImage, vkIL::eUndefined, vkIL::eTransferDstOptimal);
 
@@ -780,8 +773,8 @@ private:
         copyRegion.setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 });
         copyRegion.setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 });
         copyRegion.setExtent({ WIDTH, HEIGHT, 1 });
-        cmdBuf.copyImage(srcImage, vkIL::eTransferSrcOptimal,
-                         dstImage, vkIL::eTransferDstOptimal, copyRegion);
+        cmdBuf.copyImage(srcImage, vk::ImageLayout::eTransferSrcOptimal,
+                         dstImage, vk::ImageLayout::eTransferDstOptimal, copyRegion);
     }
 
     void createSyncObjects()
@@ -797,18 +790,11 @@ private:
         }
     }
 
-    void present(uint32_t imageIndex)
-    {
-        vk::PresentInfoKHR presentInfo;
-        presentInfo.setWaitSemaphores(*renderFinishedSemaphores[currentFrame]);
-        presentInfo.setSwapchains(*Context::swapchain);
-        presentInfo.setImageIndices(imageIndex);
-        Context::queue.presentKHR(presentInfo);
-    }
-
     void drawFrame()
     {
-        Context::device->waitForFences(inFlightFences[currentFrame], true, UINT64_MAX);
+        if (Context::device->waitForFences(inFlightFences[currentFrame], true, UINT64_MAX) != vk::Result::eSuccess) {
+            throw std::runtime_error("Failed to wait for fences");
+        }
         Context::device->resetFences(inFlightFences[currentFrame]);
 
         uint32_t imageIndex = Context::acquireNextImage(*imageAvailableSemaphores[currentFrame]);
@@ -822,7 +808,15 @@ private:
         submitInfo.setCommandBuffers(*drawCommandBuffers[imageIndex]);
         submitInfo.setSignalSemaphores(*renderFinishedSemaphores[currentFrame]);
         Context::queue.submit(submitInfo, inFlightFences[currentFrame]);
-        present(imageIndex);
+
+        // Present image
+        vk::PresentInfoKHR presentInfo;
+        presentInfo.setWaitSemaphores(*renderFinishedSemaphores[currentFrame]);
+        presentInfo.setSwapchains(*Context::swapchain);
+        presentInfo.setImageIndices(imageIndex);
+        if (Context::queue.presentKHR(presentInfo) != vk::Result::eSuccess) {
+            throw std::runtime_error("Failed to present");
+        }
 
         currentFrame = (currentFrame + 1) % maxFramesInFlight;
         pushConstants.frame++;

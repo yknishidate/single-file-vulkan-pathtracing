@@ -30,7 +30,7 @@ struct Face
     vec3 emission;
 };
 
-Vertex unpack(uint index)
+Vertex unpackVertex(uint index)
 {
     uint stride = 3;
     uint offset = index * stride;
@@ -58,9 +58,9 @@ vec3 calcNormal(Vertex v0, Vertex v1, Vertex v2)
 
 void main()
 {
-    Vertex v0 = unpack(indices.i[3 * gl_PrimitiveID + 0]);
-    Vertex v1 = unpack(indices.i[3 * gl_PrimitiveID + 1]);
-    Vertex v2 = unpack(indices.i[3 * gl_PrimitiveID + 2]);
+    Vertex v0 = unpackVertex(indices.i[3 * gl_PrimitiveID + 0]);
+    Vertex v1 = unpackVertex(indices.i[3 * gl_PrimitiveID + 1]);
+    Vertex v2 = unpackVertex(indices.i[3 * gl_PrimitiveID + 2]);
 
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
     vec3 pos = v0.pos * barycentricCoords.x + v1.pos * barycentricCoords.y + v2.pos * barycentricCoords.z;

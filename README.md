@@ -1,4 +1,4 @@
-# Single File Vulkan Pathtracing
+# Single-File Vulkan Pathtracing
 
 ![image](https://user-images.githubusercontent.com/30839669/167279645-c56a70ac-8941-4a2b-ba1c-05a5d03c3d27.png)
 
@@ -7,7 +7,6 @@
 -   Vulkan SDK 1.2.162.0 or later
 -   GPU / Driver that support Vulkan Ray Tracing
 -   C++17
--   GLFW
 -   CMake
 
 ## Setup
