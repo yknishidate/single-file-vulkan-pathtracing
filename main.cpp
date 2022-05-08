@@ -22,8 +22,6 @@ using vkIL = vk::ImageLayout;
 
 constexpr int WIDTH = 1024;
 constexpr int HEIGHT = 1024;
-constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-const std::string ASSET_PATH = "../assets/CornellBox-Original.obj";
 
 // ----------------------------------------------------------------------------------------------------------
 // Functions
@@ -96,8 +94,7 @@ struct Face
     float emission[3];
 };
 
-void loadFromFile(const std::string& filepath,
-                  std::vector<Vertex>& vertices,
+void loadFromFile(std::vector<Vertex>& vertices,
                   std::vector<uint32_t>& indices,
                   std::vector<Face>& faces)
 {
@@ -106,7 +103,7 @@ void loadFromFile(const std::string& filepath,
     std::vector<tinyobj::material_t> materials;
     std::string warn, err;
 
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filepath.c_str(), "../assets")) {
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "../assets/CornellBox-Original.obj", "../assets")) {
         throw std::runtime_error(warn + err);
     }
 
@@ -449,14 +446,25 @@ struct Image
 
 struct Accel
 {
-    vk::UniqueAccelerationStructureKHR handle;
+    vk::UniqueAccelerationStructureKHR accel;
     Buffer buffer;
     vk::DeviceSize size;
     uint64_t deviceAddress;
     vk::WriteDescriptorSetAccelerationStructureKHR accelInfo;
 
-    void create(vk::AccelerationStructureGeometryKHR geometry,
-                vk::AccelerationStructureTypeKHR type, uint32_t primitiveCount)
+    void createAsBottom(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount)
+    {
+        create(geometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel);
+    }
+
+    void createAsTop(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount)
+    {
+        create(geometry, primitiveCount, vk::AccelerationStructureTypeKHR::eTopLevel);
+    }
+
+private:
+    void create(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount,
+                vk::AccelerationStructureTypeKHR type)
     {
         vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
         buildGeometryInfo.setType(type);
@@ -474,13 +482,13 @@ struct Accel
         createInfo.setBuffer(*buffer.buffer);
         createInfo.setSize(size);
         createInfo.setType(type);
-        handle = Context::device->createAccelerationStructureKHRUnique(createInfo);
+        accel = Context::device->createAccelerationStructureKHRUnique(createInfo);
 
         // Build
         Buffer scratchBuffer;
         scratchBuffer.create(size, vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress, vkMP::eDeviceLocal);
         buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
-        buildGeometryInfo.setDstAccelerationStructure(*handle);
+        buildGeometryInfo.setDstAccelerationStructure(*accel);
 
         vk::AccelerationStructureBuildRangeInfoKHR buildRangeInfo{ primitiveCount , 0, 0, 0 };
         Context::oneTimeSubmit(
@@ -488,7 +496,7 @@ struct Accel
                 commandBuffer.buildAccelerationStructuresKHR(buildGeometryInfo, &buildRangeInfo);
             });
 
-        accelInfo = vk::WriteDescriptorSetAccelerationStructureKHR{ *handle };
+        accelInfo = vk::WriteDescriptorSetAccelerationStructureKHR{ *accel };
     }
 };
 
@@ -502,7 +510,7 @@ class Application
 public:
     ~Application()
     {
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        for (size_t i = 0; i < maxFramesInFlight; i++) {
             Context::device->destroyFence(inFlightFences[i]);
         }
     }
@@ -552,12 +560,13 @@ private:
     std::vector<vk::UniqueSemaphore> renderFinishedSemaphores;
     std::vector<vk::Fence> inFlightFences;
     size_t currentFrame = 0;
+    int maxFramesInFlight = 2;
 
     void initVulkan()
     {
         inputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
         outputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vkIU::eStorage | vkIU::eTransferSrc | vkIU::eTransferDst);
-        loadFromFile(ASSET_PATH, vertices, indices, faces);
+        loadFromFile(vertices, indices, faces);
         createMeshBuffers();
         createBottomLevelAS();
         createTopLevelAS();
@@ -607,7 +616,7 @@ private:
         geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         uint32_t primitiveCount = indices.size() / 3;
-        bottomAccel.create(geometry, vk::AccelerationStructureTypeKHR::eBottomLevel, primitiveCount);
+        bottomAccel.createAsBottom(geometry, primitiveCount);
     }
 
     void createTopLevelAS()
@@ -638,14 +647,14 @@ private:
         geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         uint32_t primitiveCount = 1;
-        topAccel.create(geometry, vk::AccelerationStructureTypeKHR::eTopLevel, primitiveCount);
+        topAccel.createAsTop(geometry, primitiveCount);
     }
 
     void loadShaders()
     {
         const uint32_t raygenIndex = 0;
         const uint32_t missIndex = 1;
-        const uint32_t closestHitIndex = 2;
+        const uint32_t chitIndex = 2;
 
         shaderModules.push_back(createShaderModule("../shaders/raygen.rgen.spv"));
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules.back(), "main" });
@@ -660,7 +669,7 @@ private:
         shaderModules.push_back(createShaderModule("../shaders/closesthit.rchit.spv"));
         shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules.back(), "main" });
         shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
-                               VK_SHADER_UNUSED_KHR, closestHitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+                               VK_SHADER_UNUSED_KHR, chitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
     }
 
     vk::UniqueShaderModule createShaderModule(const std::string& filename)
@@ -787,11 +796,11 @@ private:
 
     void createSyncObjects()
     {
-        imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-        renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-        inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+        imageAvailableSemaphores.resize(maxFramesInFlight);
+        renderFinishedSemaphores.resize(maxFramesInFlight);
+        inFlightFences.resize(maxFramesInFlight);
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        for (size_t i = 0; i < maxFramesInFlight; i++) {
             imageAvailableSemaphores[i] = Context::device->createSemaphoreUnique({});
             renderFinishedSemaphores[i] = Context::device->createSemaphoreUnique({});
             inFlightFences[i] = Context::device->createFence({ vk::FenceCreateFlagBits::eSignaled });
@@ -825,7 +834,7 @@ private:
         Context::queue.submit(submitInfo, inFlightFences[currentFrame]);
         present(imageIndex);
 
-        currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+        currentFrame = (currentFrame + 1) % maxFramesInFlight;
         pushConstants.frame++;
     }
 };
