@@ -124,7 +124,7 @@ std::vector<char> readFile(const std::string& filename)
         throw std::runtime_error("failed to open file!");
     }
 
-    size_t fileSize = (size_t)file.tellg();
+    size_t fileSize = file.tellg();
     std::vector<char> buffer(fileSize);
     file.seekg(0);
     file.read(buffer.data(), fileSize);
@@ -149,11 +149,11 @@ struct Context
             // Gather extensions
             uint32_t glfwExtensionCount = 0;
             const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-            std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+            std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
             extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
             // Gather layers
-            std::vector<const char*> layers{ "VK_LAYER_KHRONOS_validation", "VK_LAYER_LUNARG_monitor" };
+            std::vector layers{ "VK_LAYER_KHRONOS_validation", "VK_LAYER_LUNARG_monitor" };
 
             // Setup DynamicLoader (see https://github.com/KhronosGroup/Vulkan-Hpp)
             static vk::DynamicLoader dl;
@@ -204,7 +204,7 @@ struct Context
             float queuePriority = 1.0f;
             vk::DeviceQueueCreateInfo queueCreateInfo{ {}, queueFamily, 1, &queuePriority };
 
-            const std::vector<const char*> deviceExtensions{
+            const std::vector deviceExtensions{
                 VK_KHR_SWAPCHAIN_EXTENSION_NAME,
                 VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
                 VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
@@ -324,7 +324,7 @@ struct Context
 
     static uint32_t acquireNextImage(vk::Semaphore semaphore)
     {
-        auto res = Context::device->acquireNextImageKHR(*swapchain, UINT64_MAX, semaphore);
+        auto res = device->acquireNextImageKHR(*swapchain, UINT64_MAX, semaphore);
         if (res.result != vk::Result::eSuccess) {
             throw std::runtime_error("failed to acquire next image!");
         }
@@ -363,7 +363,7 @@ struct Buffer
 
         // Copy
         void* mapped = Context::device->mapMemory(*memory, 0, size);
-        memcpy(mapped, data, static_cast<size_t>(size));
+        memcpy(mapped, data, size);
         Context::device->unmapMemory(*memory);
     }
 
@@ -603,7 +603,7 @@ private:
         geometry.setGeometry({ triangleData });
         geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
-        uint32_t primitiveCount = static_cast<uint32_t>(indices.size() / 3);
+        auto primitiveCount = static_cast<uint32_t>(indices.size() / 3);
         bottomAccel.createAsBottom(geometry, primitiveCount);
     }
 
@@ -707,7 +707,7 @@ private:
         uint32_t handleSize = rtProperties.shaderGroupHandleSize;
         uint32_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
         uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
-        uint32_t sbtSize = static_cast<uint32_t>(groupCount * handleSizeAligned);
+        uint32_t sbtSize = groupCount * handleSizeAligned;
 
         // Get shader group handles
         std::vector<uint8_t> handleStorage(sbtSize);

@@ -1,14 +1,7 @@
 #version 460
 #extension GL_EXT_ray_tracing : enable
-
-struct HitPayload
-{
-    vec3 position;
-    vec3 normal;
-    vec3 emission;
-    vec3 brdf;
-    bool done;
-};
+#extension GL_GOOGLE_include_directive : enable
+#include "common.glsl"
 
 layout(binding = 2, set = 0) buffer Vertices{float v[];} vertices;
 layout(binding = 3, set = 0) buffer Indices{uint i[];} indices;
@@ -16,8 +9,6 @@ layout(binding = 4, set = 0) buffer Faces{float f[];} faces;
 
 layout(location = 0) rayPayloadInEXT HitPayload payload;
 hitAttributeEXT vec3 attribs;
-
-const highp float M_PI = 3.14159265358979323846;
 
 struct Vertex
 {

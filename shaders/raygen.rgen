@@ -1,14 +1,7 @@
 #version 460
 #extension GL_EXT_ray_tracing : enable
-
-struct HitPayload
-{
-    vec3 position;
-    vec3 normal;
-    vec3 emission;
-    vec3 brdf;
-    bool done;
-};
+#extension GL_GOOGLE_include_directive : enable
+#include "common.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba8) uniform image2D outputImage;
@@ -17,34 +10,6 @@ layout(push_constant) uniform PushConstants {
 } pushConstants;
 
 layout(location = 0) rayPayloadEXT HitPayload payload;
-
-const highp float M_PI = 3.14159265358979323846;
-
-uint pcg(inout uint state)
-{
-    uint prev = state * 747796405u + 2891336453u;
-    uint word = ((prev >> ((prev >> 28u) + 4u)) ^ prev) * 277803737u;
-    state = prev;
-    return (word >> 22u) ^ word;
-}
-
-uvec2 pcg2d(uvec2 v)
-{
-    v = v * 1664525u + 1013904223u;
-    v.x += v.y * 1664525u;
-    v.y += v.x * 1664525u;
-    v = v ^ (v >> 16u);
-    v.x += v.y * 1664525u;
-    v.y += v.x * 1664525u;
-    v = v ^ (v >> 16u);
-    return v;
-}
-
-float rand(inout uint seed)
-{
-    uint val = pcg(seed);
-    return (float(val) * (1.0 / float(0xffffffffu)));
-}
 
 void createCoordinateSystem(in vec3 N, out vec3 T, out vec3 B)
 {
@@ -109,7 +74,7 @@ void main()
                 0     // payloadLocation
             );
             color += weight * payload.emission;
-            origin.xyz = payload.position + payload.normal * 0.001;
+            origin.xyz = payload.position;
             direction.xyz = sampleDirection(rand(seed), rand(seed), payload.normal);
             float pdf = 1.0 / (2.0 * M_PI);
             weight *= payload.brdf * dot(direction.xyz, payload.normal) / pdf;
