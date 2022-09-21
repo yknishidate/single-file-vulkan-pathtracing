@@ -156,7 +156,6 @@ struct Context
             std::vector layers{ "VK_LAYER_KHRONOS_validation", "VK_LAYER_LUNARG_monitor" };
 
             // Setup DynamicLoader (see https://github.com/KhronosGroup/Vulkan-Hpp)
-            static vk::DynamicLoader dl;
             auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
             VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
@@ -332,6 +331,7 @@ struct Context
     }
 
     static inline GLFWwindow* window;
+    static inline vk::DynamicLoader dl;
     static inline vk::UniqueInstance instance;
     static inline vk::UniqueDebugUtilsMessengerEXT messenger;
     static inline vk::UniqueSurfaceKHR surface;
@@ -448,17 +448,6 @@ struct Accel
     uint64_t deviceAddress = 0;
     vk::DeviceSize size = 0;
 
-    void createAsBottom(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount)
-    {
-        create(geometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel);
-    }
-
-    void createAsTop(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount)
-    {
-        create(geometry, primitiveCount, vk::AccelerationStructureTypeKHR::eTopLevel);
-    }
-
-private:
     void create(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount,
                 vk::AccelerationStructureTypeKHR type)
     {
@@ -604,7 +593,7 @@ private:
         geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         auto primitiveCount = static_cast<uint32_t>(indices.size() / 3);
-        bottomAccel.createAsBottom(geometry, primitiveCount);
+        bottomAccel.create(geometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel);
     }
 
     void createTopLevelAS()
@@ -635,7 +624,7 @@ private:
         geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         uint32_t primitiveCount = 1;
-        topAccel.createAsTop(geometry, primitiveCount);
+        topAccel.create(geometry, primitiveCount, vk::AccelerationStructureTypeKHR::eTopLevel);
     }
 
     void loadShaders()
