@@ -445,8 +445,6 @@ struct Accel
     vk::UniqueAccelerationStructureKHR accel;
     Buffer buffer;
     vk::WriteDescriptorSetAccelerationStructureKHR accelInfo;
-    uint64_t deviceAddress = 0;
-    vk::DeviceSize size = 0;
 
     void create(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount,
                 vk::AccelerationStructureTypeKHR type)
@@ -459,7 +457,7 @@ struct Accel
         // Create buffer
         vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = Context::device->getAccelerationStructureBuildSizesKHR(
             vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
-        size = buildSizesInfo.accelerationStructureSize;
+        vk::DeviceSize size = buildSizesInfo.accelerationStructureSize;
         buffer.create(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress, size);
 
         // Create accel
@@ -705,8 +703,7 @@ private:
         }
 
         vk::BufferUsageFlags usage =
-            vk::BufferUsageFlagBits::eShaderBindingTableKHR |
-            vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress;
+            vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress;
         raygenSBT.create(usage, handleSize, handleStorage.data() + 0 * handleSizeAligned);
         missSBT.create(usage, handleSize, handleStorage.data() + 1 * handleSizeAligned);
         hitSBT.create(usage, handleSize, handleStorage.data() + 2 * handleSizeAligned);
