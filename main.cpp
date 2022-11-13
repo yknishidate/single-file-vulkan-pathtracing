@@ -296,30 +296,51 @@ struct Context
 
 struct Buffer
 {
+	enum class Type
+	{
+		Scratch,
+		AccelInput,
+		AccelStorage,
+		ShaderBindingTable,
+	};
+
 	vk::UniqueBuffer buffer;
 	vk::UniqueDeviceMemory memory;
 	vk::DescriptorBufferInfo bufferInfo;
 	uint64_t deviceAddress = 0;
+	vk::DeviceSize size;
 
-	void create(vk::BufferUsageFlags usage, vk::DeviceSize size)
+	Buffer() = default;
+
+	void copy(const void* data)
 	{
-		create(usage, vk::MemoryPropertyFlagBits::eDeviceLocal, size);
-	}
-
-	void create(vk::BufferUsageFlags usage, vk::DeviceSize size, void* data)
-	{
-		create(usage, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, size);
-
-		// Copy
 		void* mapped = Context::device->mapMemory(*memory, 0, size);
 		memcpy(mapped, data, size);
 		Context::device->unmapMemory(*memory);
 	}
 
-private:
-	void create(vk::BufferUsageFlags usage, vk::MemoryPropertyFlags memoryProps, vk::DeviceSize size)
+	void create(Type type, vk::DeviceSize size, const void* data = nullptr)
 	{
+		vk::BufferUsageFlags usage;
+		vk::MemoryPropertyFlags memoryProps;
+		using Usage = vk::BufferUsageFlagBits;
+		using Memory = vk::MemoryPropertyFlagBits;
+		if (type == Type::AccelInput) {
+			usage = Usage::eAccelerationStructureBuildInputReadOnlyKHR | Usage::eStorageBuffer | Usage::eShaderDeviceAddress;
+			memoryProps = Memory::eHostVisible | Memory::eHostCoherent;
+		} else if (type == Type::Scratch) {
+			usage = Usage::eStorageBuffer | Usage::eShaderDeviceAddress;
+			memoryProps = Memory::eDeviceLocal;
+		} else if (type == Type::AccelStorage) {
+			usage = Usage::eAccelerationStructureStorageKHR | Usage::eShaderDeviceAddress;
+			memoryProps = Memory::eDeviceLocal;
+		} else if (type == Type::ShaderBindingTable) {
+			usage = Usage::eShaderBindingTableKHR | Usage::eShaderDeviceAddress;
+			memoryProps = Memory::eHostVisible | Memory::eHostCoherent;
+		}
+
 		buffer = Context::device->createBufferUnique({ {}, size, usage });
+		this->size = size;
 
 		// Allocate memory
 		vk::MemoryRequirements requirements = Context::device->getBufferMemoryRequirements(*buffer);
@@ -340,6 +361,10 @@ private:
 		deviceAddress = Context::device->getBufferAddressKHR(&bufferDeviceAI);
 
 		bufferInfo = vk::DescriptorBufferInfo{ *buffer, 0, size };
+
+		if (data) {
+			copy(data);
+		}
 	}
 };
 
@@ -404,7 +429,7 @@ struct Accel
 		vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = Context::device->getAccelerationStructureBuildSizesKHR(
 			vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
 		vk::DeviceSize size = buildSizesInfo.accelerationStructureSize;
-		buffer.create(vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress, size);
+		buffer.create(Buffer::Type::AccelStorage, size);
 
 		// Create accel
 		accel = Context::device->createAccelerationStructureKHRUnique(
@@ -415,7 +440,7 @@ struct Accel
 
 		// Build
 		Buffer scratchBuffer;
-		scratchBuffer.create(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress, size);
+		scratchBuffer.create(Buffer::Type::Scratch, size);
 		buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
 		buildGeometryInfo.setDstAccelerationStructure(*accel);
 
@@ -501,10 +526,9 @@ private:
 
 	void createMeshBuffers()
 	{
-		vk::BufferUsageFlags usage{ vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR | vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress };
-		vertexBuffer.create(usage, sizeof(Vertex) * vertices.size(), vertices.data());
-		indexBuffer.create(usage, sizeof(uint32_t) * indices.size(), indices.data());
-		faceBuffer.create(vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress, sizeof(Face) * faces.size(), faces.data());
+		vertexBuffer.create(Buffer::Type::AccelInput, sizeof(Vertex) * vertices.size(), vertices.data());
+		indexBuffer.create(Buffer::Type::AccelInput, sizeof(uint32_t) * indices.size(), indices.data());
+		faceBuffer.create(Buffer::Type::AccelInput, sizeof(Face) * faces.size(), faces.data());
 	}
 
 	void createBottomLevelAS()
@@ -540,9 +564,7 @@ private:
 			.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 
 		Buffer instancesBuffer;
-		instancesBuffer.create(vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR |
-							   vk::BufferUsageFlagBits::eShaderDeviceAddress,
-							   sizeof(vk::AccelerationStructureInstanceKHR), &asInstance);
+		instancesBuffer.create(Buffer::Type::AccelInput, sizeof(vk::AccelerationStructureInstanceKHR), &asInstance);
 
 		auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR()
 			.setArrayOfPointers(false)
@@ -635,11 +657,9 @@ private:
 			throw std::runtime_error("failed to get ray tracing shader group handles.");
 		}
 
-		vk::BufferUsageFlags usage =
-			vk::BufferUsageFlagBits::eShaderBindingTableKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress;
-		raygenSBT.create(usage, handleSize, handleStorage.data() + 0 * handleSizeAligned);
-		missSBT.create(usage, handleSize, handleStorage.data() + 1 * handleSizeAligned);
-		hitSBT.create(usage, handleSize, handleStorage.data() + 2 * handleSizeAligned);
+		raygenSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 0 * handleSizeAligned);
+		missSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 1 * handleSizeAligned);
+		hitSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 2 * handleSizeAligned);
 
 		uint32_t stride = rtProperties.shaderGroupHandleAlignment;
 		uint32_t size = rtProperties.shaderGroupHandleAlignment;
