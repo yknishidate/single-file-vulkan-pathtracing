@@ -424,9 +424,30 @@ struct Accel
 
 struct Swapchain
 {
-	Swapchain() = default;
+	Swapchain(Context& ctx)
+		: context(&ctx)
+	{
+		swapchain = context->device->createSwapchainKHRUnique(
+			vk::SwapchainCreateInfoKHR()
+			.setSurface(*context->surface)
+			.setMinImageCount(3)
+			.setImageFormat(vk::Format::eB8G8R8A8Unorm)
+			.setImageColorSpace(vk::ColorSpaceKHR::eSrgbNonlinear)
+			.setImageExtent({ WIDTH, HEIGHT })
+			.setImageArrayLayers(1)
+			.setImageUsage(vk::ImageUsageFlagBits::eTransferDst)
+			.setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
+			.setPresentMode(vk::PresentModeKHR::eFifo)
+			.setClipped(true)
+			.setQueueFamilyIndices(context->queueFamily));
 
-	void destroy() const;
+		swapchainImages = context->device->getSwapchainImagesKHR(*swapchain);
+
+		commandBuffers = context->device->allocateCommandBuffersUnique(
+			vk::CommandBufferAllocateInfo()
+			.setCommandPool(*context->commandPool)
+			.setCommandBufferCount(swapchainImages.size()));
+	}
 
 	void acquireNextImage()
 	{
@@ -467,48 +488,9 @@ struct Swapchain
 		}
 	}
 
-	Swapchain(Context& ctx)
-		: context(&ctx)
-	{
-		swapchain = context->device->createSwapchainKHRUnique(
-			vk::SwapchainCreateInfoKHR()
-			.setSurface(*context->surface)
-			.setMinImageCount(3)
-			.setImageFormat(vk::Format::eB8G8R8A8Unorm)
-			.setImageColorSpace(vk::ColorSpaceKHR::eSrgbNonlinear)
-			.setImageExtent({ WIDTH, HEIGHT })
-			.setImageArrayLayers(1)
-			.setImageUsage(vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst)
-			.setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
-			.setPresentMode(vk::PresentModeKHR::eFifo)
-			.setClipped(true)
-			.setQueueFamilyIndices(context->queueFamily));
-
-		// get images
-		swapchainImages = context->device->getSwapchainImagesKHR(*swapchain);
-
-		// create image views
-		for (const auto& image : swapchainImages) {
-			swapchainViews.push_back(context->device->createImageViewUnique(
-				vk::ImageViewCreateInfo()
-				.setImage(image)
-				.setViewType(vk::ImageViewType::e2D)
-				.setFormat(vk::Format::eB8G8R8A8Unorm)
-				.setComponents({ vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA })
-				.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 })));
-		}
-
-		// allocate command buffers
-		commandBuffers = context->device->allocateCommandBuffersUnique(
-			vk::CommandBufferAllocateInfo()
-			.setCommandPool(*context->commandPool)
-			.setCommandBufferCount(swapchainImages.size()));
-	}
-
 	Context* context = nullptr;
 	vk::UniqueSwapchainKHR swapchain;
 	std::vector<vk::Image> swapchainImages;
-	std::vector<vk::UniqueImageView> swapchainViews;
 	std::vector<vk::UniqueCommandBuffer> commandBuffers;
 	uint32_t frameIndex = 0;
 };
