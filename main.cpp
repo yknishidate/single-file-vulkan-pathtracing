@@ -312,7 +312,7 @@ struct Buffer
 
 	Buffer() = default;
 
-	void create(Type type, vk::DeviceSize size, const void* data = nullptr)
+	Buffer(Type type, vk::DeviceSize size, const void* data = nullptr)
 	{
 		vk::BufferUsageFlags usage;
 		vk::MemoryPropertyFlags memoryProps;
@@ -370,7 +370,7 @@ struct Image
 	vk::UniqueDeviceMemory memory;
 	vk::DescriptorImageInfo imageInfo;
 
-	void create(vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage)
+	Image(vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage)
 	{
 		// Create image
 		image = Context::device->createImageUnique(
@@ -412,8 +412,8 @@ struct Accel
 	Buffer buffer;
 	vk::WriteDescriptorSetAccelerationStructureKHR accelInfo;
 
-	void create(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount,
-				vk::AccelerationStructureTypeKHR type)
+	Accel(vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount,
+		  vk::AccelerationStructureTypeKHR type)
 	{
 		auto buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR()
 			.setType(type)
@@ -424,7 +424,7 @@ struct Accel
 		vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = Context::device->getAccelerationStructureBuildSizesKHR(
 			vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
 		vk::DeviceSize size = buildSizesInfo.accelerationStructureSize;
-		buffer.create(Buffer::Type::AccelStorage, size);
+		buffer = Buffer{ Buffer::Type::AccelStorage, size };
 
 		// Create accel
 		accel = Context::device->createAccelerationStructureKHRUnique(
@@ -434,8 +434,7 @@ struct Accel
 			.setType(type));
 
 		// Build
-		Buffer scratchBuffer;
-		scratchBuffer.create(Buffer::Type::Scratch, size);
+		Buffer scratchBuffer{ Buffer::Type::Scratch, size };
 		buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
 		buildGeometryInfo.setDstAccelerationStructure(*accel);
 
@@ -459,20 +458,16 @@ int main()
 	try {
 		Context::init();
 		{
-			Image outputImage;
-			outputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst);
+			Image outputImage{ { WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst };
 
 			std::vector<Vertex> vertices;
 			std::vector<uint32_t> indices;
 			std::vector<Face> faces;
 			loadFromFile(vertices, indices, faces);
 
-			Buffer vertexBuffer;
-			Buffer indexBuffer;
-			Buffer faceBuffer;
-			vertexBuffer.create(Buffer::Type::AccelInput, sizeof(Vertex) * vertices.size(), vertices.data());
-			indexBuffer.create(Buffer::Type::AccelInput, sizeof(uint32_t) * indices.size(), indices.data());
-			faceBuffer.create(Buffer::Type::AccelInput, sizeof(Face) * faces.size(), faces.data());
+			Buffer vertexBuffer{ Buffer::Type::AccelInput, sizeof(Vertex) * vertices.size(), vertices.data() };
+			Buffer indexBuffer{ Buffer::Type::AccelInput, sizeof(uint32_t) * indices.size(), indices.data() };
+			Buffer faceBuffer{ Buffer::Type::AccelInput, sizeof(Face) * faces.size(), faces.data() };
 
 			auto triangleData = vk::AccelerationStructureGeometryTrianglesDataKHR()
 				.setVertexFormat(vk::Format::eR32G32B32Sfloat)
@@ -489,8 +484,7 @@ int main()
 
 			auto primitiveCount = static_cast<uint32_t>(indices.size() / 3);
 
-			Accel bottomAccel;
-			bottomAccel.create(triangleGeometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel);
+			Accel bottomAccel{ triangleGeometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel };
 
 			vk::TransformMatrixKHR transformMatrix = std::array{
 				std::array{1.0f, 0.0f, 0.0f, 0.0f },
@@ -503,8 +497,7 @@ int main()
 				.setAccelerationStructureReference(bottomAccel.buffer.deviceAddress)
 				.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 
-			Buffer instancesBuffer;
-			instancesBuffer.create(Buffer::Type::AccelInput, sizeof(vk::AccelerationStructureInstanceKHR), &asInstance);
+			Buffer instancesBuffer{ Buffer::Type::AccelInput, sizeof(vk::AccelerationStructureInstanceKHR), &asInstance };
 
 			auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR()
 				.setArrayOfPointers(false)
@@ -515,9 +508,7 @@ int main()
 				.setGeometry({ instancesData })
 				.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
-			Accel topAccel;
-			topAccel.create(instanceGeometry, 1, vk::AccelerationStructureTypeKHR::eTopLevel);
-
+			Accel topAccel{ instanceGeometry, 1, vk::AccelerationStructureTypeKHR::eTopLevel };
 
 			const uint32_t raygenIndex = 0;
 			const uint32_t missIndex = 1;
@@ -594,12 +585,9 @@ int main()
 				throw std::runtime_error("failed to get ray tracing shader group handles.");
 			}
 
-			Buffer raygenSBT;
-			Buffer missSBT;
-			Buffer hitSBT;
-			raygenSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 0 * handleSizeAligned);
-			missSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 1 * handleSizeAligned);
-			hitSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 2 * handleSizeAligned);
+			Buffer raygenSBT{ Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 0 * handleSizeAligned };
+			Buffer missSBT{ Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 1 * handleSizeAligned };
+			Buffer hitSBT{ Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 2 * handleSizeAligned };
 
 			uint32_t stride = rtProperties.shaderGroupHandleAlignment;
 			uint32_t size = rtProperties.shaderGroupHandleAlignment;
