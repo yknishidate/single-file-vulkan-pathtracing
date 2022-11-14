@@ -1,3 +1,4 @@
+
 #include <string>
 #include <fstream>
 #include <iostream>
@@ -5,7 +6,6 @@
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
-
 #include <GLFW/glfw3.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -75,35 +75,6 @@ std::vector<char> readFile(const std::string& filename)
 	file.read(buffer.data(), fileSize);
 	file.close();
 	return buffer;
-}
-
-vk::AccessFlags toAccessFlags(vk::ImageLayout layout)
-{
-	switch (layout) {
-		case vk::ImageLayout::eTransferSrcOptimal:
-			return vk::AccessFlagBits::eTransferRead;
-		case vk::ImageLayout::eTransferDstOptimal:
-			return vk::AccessFlagBits::eTransferWrite;
-		default:
-			return {};
-	}
-}
-
-void setImageLayout(vk::CommandBuffer cmdBuf, vk::Image image,
-					vk::ImageLayout oldLayout, vk::ImageLayout newLayout)
-{
-	auto barrier = vk::ImageMemoryBarrier()
-		.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-		.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-		.setImage(image)
-		.setOldLayout(oldLayout)
-		.setNewLayout(newLayout)
-		.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 })
-		.setSrcAccessMask(toAccessFlags(oldLayout))
-		.setDstAccessMask(toAccessFlags(newLayout));
-	cmdBuf.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-						   vk::PipelineStageFlagBits::eAllCommands,
-						   {}, {}, {}, barrier);
 }
 
 struct Context
@@ -189,22 +160,6 @@ struct Context
 
 		queue = device->getQueue(queueFamily, 0);
 
-		// Create swapchain
-		swapchain = device->createSwapchainKHRUnique(
-			vk::SwapchainCreateInfoKHR()
-			.setSurface(*surface)
-			.setMinImageCount(3)
-			.setImageFormat(vk::Format::eB8G8R8A8Unorm)
-			.setImageColorSpace(vk::ColorSpaceKHR::eSrgbNonlinear)
-			.setImageExtent({ WIDTH, HEIGHT })
-			.setImageArrayLayers(1)
-			.setImageUsage(vk::ImageUsageFlagBits::eTransferDst)
-			.setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
-			.setPresentMode(vk::PresentModeKHR::eFifo)
-			.setClipped(true));
-
-		swapchainImages = device->getSwapchainImagesKHR(*swapchain);
-
 		// Create command pool
 		commandPool = device->createCommandPoolUnique(
 			vk::CommandPoolCreateInfo()
@@ -235,39 +190,24 @@ struct Context
 		throw std::runtime_error("failed to find suitable memory type");
 	}
 
-	std::vector<vk::UniqueCommandBuffer> allocateCommandBuffers(size_t count)
-	{
-		return device->allocateCommandBuffersUnique(
-			vk::CommandBufferAllocateInfo()
-			.setCommandPool(*commandPool)
-			.setCommandBufferCount(static_cast<uint32_t>(count)));
-	}
-
 	void oneTimeSubmit(const std::function<void(vk::CommandBuffer)>& func)
 	{
-		vk::UniqueCommandBuffer cmdBuf = std::move(allocateCommandBuffers(1).front());
-		cmdBuf->begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
-		func(*cmdBuf);
-		cmdBuf->end();
+		vk::UniqueCommandBuffer commandBuffer = std::move(device->allocateCommandBuffersUnique(
+			vk::CommandBufferAllocateInfo()
+			.setCommandPool(*commandPool)
+			.setCommandBufferCount(1))
+			.front());
+		commandBuffer->begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
+		func(*commandBuffer);
+		commandBuffer->end();
 
-		vk::SubmitInfo submitInfo;
-		submitInfo.setCommandBuffers(*cmdBuf);
-		queue.submit(submitInfo);
+		queue.submit(vk::SubmitInfo().setCommandBuffers(*commandBuffer));
 		queue.waitIdle();
 	}
 
 	vk::UniqueDescriptorSet allocateDescSet(vk::DescriptorSetLayout descSetLayout)
 	{
 		return std::move(device->allocateDescriptorSetsUnique({ *descPool, descSetLayout }).front());
-	}
-
-	uint32_t acquireNextImage(vk::Semaphore semaphore)
-	{
-		auto res = device->acquireNextImageKHR(*swapchain, UINT64_MAX, semaphore);
-		if (res.result != vk::Result::eSuccess) {
-			throw std::runtime_error("failed to acquire next image!");
-		}
-		return res.value;
 	}
 
 	static VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -289,8 +229,6 @@ struct Context
 	uint32_t queueFamily;
 	vk::Queue queue;
 	vk::UniqueCommandPool commandPool;
-	vk::UniqueSwapchainKHR swapchain;
-	std::vector<vk::Image> swapchainImages;
 	vk::UniqueDescriptorPool descPool;
 };
 
@@ -393,8 +331,47 @@ struct Image
 		imageInfo = { {}, *view, vk::ImageLayout::eGeneral };
 		context.oneTimeSubmit(
 			[&](vk::CommandBuffer cmdBuf) {
-				setImageLayout(cmdBuf, *image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
-			});
+			setImageLayout(cmdBuf, *image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
+		});
+	}
+
+	static vk::AccessFlags toAccessFlags(vk::ImageLayout layout)
+	{
+		switch (layout) {
+			case vk::ImageLayout::eTransferSrcOptimal:
+				return vk::AccessFlagBits::eTransferRead;
+			case vk::ImageLayout::eTransferDstOptimal:
+				return vk::AccessFlagBits::eTransferWrite;
+			default:
+				return {};
+		}
+	}
+
+	static void setImageLayout(vk::CommandBuffer commandBuffer, vk::Image image,
+							   vk::ImageLayout oldLayout, vk::ImageLayout newLayout)
+	{
+		auto barrier = vk::ImageMemoryBarrier()
+			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setImage(image)
+			.setOldLayout(oldLayout)
+			.setNewLayout(newLayout)
+			.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 })
+			.setSrcAccessMask(toAccessFlags(oldLayout))
+			.setDstAccessMask(toAccessFlags(newLayout));
+		commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
+									  vk::PipelineStageFlagBits::eAllCommands,
+									  {}, {}, {}, barrier);
+	}
+
+	static void copyImage(vk::CommandBuffer commandBuffer, vk::Image srcImage, vk::Image dstImage)
+	{
+		auto copyRegion = vk::ImageCopy()
+			.setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 })
+			.setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 })
+			.setExtent({ WIDTH, HEIGHT, 1 });
+		commandBuffer.copyImage(srcImage, vk::ImageLayout::eTransferSrcOptimal,
+								dstImage, vk::ImageLayout::eTransferDstOptimal, copyRegion);
 	}
 
 	vk::UniqueImage image;
@@ -431,11 +408,11 @@ struct Accel
 		buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
 		buildGeometryInfo.setDstAccelerationStructure(*accel);
 
-		vk::AccelerationStructureBuildRangeInfoKHR buildRangeInfo{ primitiveCount , 0, 0, 0 };
+		vk::AccelerationStructureBuildRangeInfoKHR buildRangeInfo{ primitiveCount, 0, 0, 0 };
 		context.oneTimeSubmit(
 			[&](vk::CommandBuffer commandBuffer) {
-				commandBuffer.buildAccelerationStructuresKHR(buildGeometryInfo, &buildRangeInfo);
-			});
+			commandBuffer.buildAccelerationStructuresKHR(buildGeometryInfo, &buildRangeInfo);
+		});
 
 		accelInfo = vk::WriteDescriptorSetAccelerationStructureKHR{ *accel };
 	}
@@ -445,11 +422,103 @@ struct Accel
 	vk::WriteDescriptorSetAccelerationStructureKHR accelInfo;
 };
 
+struct Swapchain
+{
+	Swapchain() = default;
+
+	void destroy() const;
+
+	void acquireNextImage()
+	{
+		const vk::Semaphore imageAcquiredSemaphore = context->device->createSemaphore(vk::SemaphoreCreateInfo());
+		frameIndex = context->device->acquireNextImageKHR(*swapchain, UINT64_MAX, imageAcquiredSemaphore).value;
+		context->device->destroySemaphore(imageAcquiredSemaphore);
+	}
+
+	void submitCommands(const std::function<void(vk::CommandBuffer)>& function)
+	{
+		vk::CommandBuffer commandBuffer = *commandBuffers[frameIndex];
+		commandBuffer.begin(vk::CommandBufferBeginInfo());
+
+		function(commandBuffer);
+
+		commandBuffer.end();
+		context->queue.submit(vk::SubmitInfo().setCommandBuffers(commandBuffer));
+	}
+
+	void copyToBackImage(vk::Image srcImage)
+	{
+		vk::CommandBuffer commandBuffer = *commandBuffers[frameIndex];
+		vk::Image backImage = swapchainImages[frameIndex];
+		Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal);
+		Image::setImageLayout(commandBuffer, backImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+		Image::copyImage(commandBuffer, srcImage, backImage);
+		Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral);
+		Image::setImageLayout(commandBuffer, backImage, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR);
+	}
+
+	void present()
+	{
+		auto result = context->queue.presentKHR(vk::PresentInfoKHR()
+												.setSwapchains(*swapchain)
+												.setImageIndices(frameIndex));
+		if (result != vk::Result::eSuccess) {
+			throw std::runtime_error("failed to present.");
+		}
+	}
+
+	Swapchain(Context& ctx)
+		: context(&ctx)
+	{
+		swapchain = context->device->createSwapchainKHRUnique(
+			vk::SwapchainCreateInfoKHR()
+			.setSurface(*context->surface)
+			.setMinImageCount(3)
+			.setImageFormat(vk::Format::eB8G8R8A8Unorm)
+			.setImageColorSpace(vk::ColorSpaceKHR::eSrgbNonlinear)
+			.setImageExtent({ WIDTH, HEIGHT })
+			.setImageArrayLayers(1)
+			.setImageUsage(vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst)
+			.setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
+			.setPresentMode(vk::PresentModeKHR::eFifo)
+			.setClipped(true)
+			.setQueueFamilyIndices(context->queueFamily));
+
+		// get images
+		swapchainImages = context->device->getSwapchainImagesKHR(*swapchain);
+
+		// create image views
+		for (const auto& image : swapchainImages) {
+			swapchainViews.push_back(context->device->createImageViewUnique(
+				vk::ImageViewCreateInfo()
+				.setImage(image)
+				.setViewType(vk::ImageViewType::e2D)
+				.setFormat(vk::Format::eB8G8R8A8Unorm)
+				.setComponents({ vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA })
+				.setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 })));
+		}
+
+		// allocate command buffers
+		commandBuffers = context->device->allocateCommandBuffersUnique(
+			vk::CommandBufferAllocateInfo()
+			.setCommandPool(*context->commandPool)
+			.setCommandBufferCount(swapchainImages.size()));
+	}
+
+	Context* context = nullptr;
+	vk::UniqueSwapchainKHR swapchain;
+	std::vector<vk::Image> swapchainImages;
+	std::vector<vk::UniqueImageView> swapchainViews;
+	std::vector<vk::UniqueCommandBuffer> commandBuffers;
+	uint32_t frameIndex = 0;
+};
+
 int main()
 {
 	try {
 		Context context;
-		Image outputImage{ context, { WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst };
+		Swapchain swapchain{ context };
+		Image outputImage{ context, {WIDTH, HEIGHT}, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst };
 
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
@@ -478,9 +547,9 @@ int main()
 		Accel bottomAccel{ context, triangleGeometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel };
 
 		vk::TransformMatrixKHR transformMatrix = std::array{
-			std::array{1.0f, 0.0f, 0.0f, 0.0f },
-			std::array{0.0f, 1.0f, 0.0f, 0.0f },
-			std::array{0.0f, 0.0f, 1.0f, 0.0f } };
+			std::array{1.0f, 0.0f, 0.0f, 0.0f},
+			std::array{0.0f, 1.0f, 0.0f, 0.0f},
+			std::array{0.0f, 0.0f, 1.0f, 0.0f} };
 
 		auto asInstance = vk::AccelerationStructureInstanceKHR()
 			.setTransform(transformMatrix)
@@ -501,41 +570,31 @@ int main()
 
 		Accel topAccel{ context, instanceGeometry, 1, vk::AccelerationStructureTypeKHR::eTopLevel };
 
-		const uint32_t raygenIndex = 0;
-		const uint32_t missIndex = 1;
-		const uint32_t chitIndex = 2;
-
-		std::vector<vk::UniqueShaderModule> shaderModules;
-		std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
-		std::vector<vk::RayTracingShaderGroupCreateInfoKHR> shaderGroups;
-
 		const std::vector<char> raygenCode = readFile("../shaders/raygen.rgen.spv");
-		shaderModules.push_back(context.device->createShaderModuleUnique({ {}, raygenCode.size(), reinterpret_cast<const uint32_t*>(raygenCode.data()) }));
-		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules.back(), "main" });
-		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
-							   raygenIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
-
 		const std::vector<char> missCode = readFile("../shaders/miss.rmiss.spv");
-		shaderModules.push_back(context.device->createShaderModuleUnique({ {}, missCode.size(), reinterpret_cast<const uint32_t*>(missCode.data()) }));
-		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eMissKHR, *shaderModules.back(), "main" });
-		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
-							   missIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
-
 		const std::vector<char> chitCode = readFile("../shaders/closesthit.rchit.spv");
-		shaderModules.push_back(context.device->createShaderModuleUnique({ {}, chitCode.size(), reinterpret_cast<const uint32_t*>(chitCode.data()) }));
-		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules.back(), "main" });
-		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
-							   VK_SHADER_UNUSED_KHR, chitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+		std::array shaderModules{
+			context.device->createShaderModuleUnique({{}, raygenCode.size(), reinterpret_cast<const uint32_t*>(raygenCode.data())}),
+			context.device->createShaderModuleUnique({{}, missCode.size(), reinterpret_cast<const uint32_t*>(missCode.data())}),
+			context.device->createShaderModuleUnique({{}, chitCode.size(), reinterpret_cast<const uint32_t*>(chitCode.data())}) };
+
+		std::array shaderStages{
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules[0], "main"},
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eMissKHR, *shaderModules[1], "main"},
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules[2], "main"} };
+
+		std::array shaderGroups{
+			vk::RayTracingShaderGroupCreateInfoKHR{vk::RayTracingShaderGroupTypeKHR::eGeneral, 0, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR},
+			vk::RayTracingShaderGroupCreateInfoKHR{vk::RayTracingShaderGroupTypeKHR::eGeneral, 1, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR},
+			vk::RayTracingShaderGroupCreateInfoKHR{vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup, VK_SHADER_UNUSED_KHR, 2, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR} };
 
 		// create ray tracing pipeline
-		using vkDT = vk::DescriptorType;
-		using vkSS = vk::ShaderStageFlagBits;
 		std::vector<vk::DescriptorSetLayoutBinding> bindings{
-			{ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }, // Binding = 0 : TLAS
-			{ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR },             // Binding = 1 : Storage image
-			{ 2, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR },        // Binding = 2 : Vertices
-			{ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR },        // Binding = 3 : Indices
-			{ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR },        // Binding = 4 : Faces
+			{0, vk::DescriptorType::eAccelerationStructureKHR, 1, vk::ShaderStageFlagBits::eRaygenKHR},  // Binding = 0 : TLAS
+			{1, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eRaygenKHR},              // Binding = 1 : Storage image
+			{2, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitKHR},         // Binding = 2 : Vertices
+			{3, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitKHR},         // Binding = 3 : Indices
+			{4, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitKHR},         // Binding = 4 : Faces
 		};
 
 		vk::UniqueDescriptorSetLayout descSetLayout = context.device->createDescriptorSetLayoutUnique({ {}, bindings });
@@ -558,7 +617,6 @@ int main()
 			throw std::runtime_error("failed to create ray tracing pipeline.");
 		}
 		vk::UniquePipeline pipeline = std::move(res.value);
-
 
 		// Get Ray Tracing Properties
 		using vkRTP = vk::PhysicalDeviceRayTracingPipelinePropertiesKHR;
@@ -588,7 +646,6 @@ int main()
 		vk::StridedDeviceAddressRegionKHR hitRegion{ hitSBT.deviceAddress, stride, size };
 
 		vk::UniqueDescriptorSet descSet = context.allocateDescSet(*descSetLayout);
-
 		std::vector<vk::WriteDescriptorSet> writes(bindings.size());
 		for (int i = 0; i < bindings.size(); i++) {
 			writes[i].setDstSet(*descSet);
@@ -603,86 +660,26 @@ int main()
 		writes[4].setBufferInfo(faceBuffer.bufferInfo);
 		context.device->updateDescriptorSets(writes, nullptr);
 
-		std::vector drawCommandBuffers = context.allocateCommandBuffers(context.swapchainImages.size());
-
-		int maxFramesInFlight = 2;
-		std::vector<vk::UniqueSemaphore> imageAvailableSemaphores(maxFramesInFlight);
-		std::vector<vk::UniqueSemaphore> renderFinishedSemaphores(maxFramesInFlight);
-		std::vector<vk::Fence> inFlightFences(maxFramesInFlight);
-
-		for (size_t i = 0; i < maxFramesInFlight; i++) {
-			imageAvailableSemaphores[i] = context.device->createSemaphoreUnique({});
-			renderFinishedSemaphores[i] = context.device->createSemaphoreUnique({});
-			inFlightFences[i] = context.device->createFence({ vk::FenceCreateFlagBits::eSignaled });
-		}
-
-		size_t currentFrame = 0;
 		int frame = 0;
 		while (!glfwWindowShouldClose(context.window)) {
 			glfwPollEvents();
 
-			if (context.device->waitForFences(inFlightFences[currentFrame], true, UINT64_MAX) != vk::Result::eSuccess) {
-				throw std::runtime_error("Failed to wait for fences");
-			}
-			context.device->resetFences(inFlightFences[currentFrame]);
-
-			uint32_t imageIndex = context.acquireNextImage(*imageAvailableSemaphores[currentFrame]);
-
-			auto commandBuffer = *drawCommandBuffers[imageIndex];
-			auto swapchainImage = context.swapchainImages[imageIndex];
-			commandBuffer.begin(vk::CommandBufferBeginInfo{});
-			commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
+			swapchain.acquireNextImage();
+			swapchain.submitCommands([&](auto commandBuffer) {
+				commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
 			commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout, 0, *descSet, nullptr);
 			commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(int), &frame);
 			commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
-
-			using vkIL = vk::ImageLayout;
-			setImageLayout(commandBuffer, *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
-			setImageLayout(commandBuffer, swapchainImage, vkIL::eUndefined, vkIL::eTransferDstOptimal);
-
-			// copy image to swapchain
-			auto copyRegion = vk::ImageCopy()
-				.setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 })
-				.setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 })
-				.setExtent({ WIDTH, HEIGHT, 1 });
-			commandBuffer.copyImage(*outputImage.image, vk::ImageLayout::eTransferSrcOptimal,
-									swapchainImage, vk::ImageLayout::eTransferDstOptimal, copyRegion);
-
-			setImageLayout(commandBuffer, *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
-			setImageLayout(commandBuffer, swapchainImage, vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
-			commandBuffer.end();
-
-			// Submit draw command
-			vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };
-			context.queue.submit(
-				vk::SubmitInfo()
-				.setWaitSemaphores(*imageAvailableSemaphores[currentFrame])
-				.setWaitDstStageMask(waitStage)
-				.setCommandBuffers(*drawCommandBuffers[imageIndex])
-				.setSignalSemaphores(*renderFinishedSemaphores[currentFrame]),
-				inFlightFences[currentFrame]);
-
-			// Present image
-			auto presentInfo = vk::PresentInfoKHR()
-				.setWaitSemaphores(*renderFinishedSemaphores[currentFrame])
-				.setSwapchains(*context.swapchain)
-				.setImageIndices(imageIndex);
-			if (context.queue.presentKHR(presentInfo) != vk::Result::eSuccess) {
-				throw std::runtime_error("Failed to present");
-			}
-
-			currentFrame = (currentFrame + 1) % maxFramesInFlight;
+			swapchain.copyToBackImage(*outputImage.image);
+			});
+			swapchain.present();
+			context.queue.waitIdle();
 			frame++;
 		}
 		context.device->waitIdle();
-		for (size_t i = 0; i < maxFramesInFlight; i++) {
-			context.device->destroyFence(inFlightFences[i]);
-		}
 		glfwDestroyWindow(context.window);
 		glfwTerminate();
 	} catch (const std::exception& e) {
 		std::cerr << e.what() << std::endl;
-		return EXIT_FAILURE;
 	}
-	return EXIT_SUCCESS;
 }
