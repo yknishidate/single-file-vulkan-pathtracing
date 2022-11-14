@@ -307,7 +307,6 @@ struct Buffer
 	Buffer() = default;
 
 	Buffer(Context& context, Type type, vk::DeviceSize size, const void* data = nullptr)
-		: size(size)
 	{
 		vk::BufferUsageFlags usage;
 		vk::MemoryPropertyFlags memoryProps;
@@ -360,7 +359,6 @@ struct Buffer
 	vk::UniqueDeviceMemory memory;
 	vk::DescriptorBufferInfo bufferInfo;
 	uint64_t deviceAddress = 0;
-	vk::DeviceSize size;
 };
 
 struct Image
@@ -379,8 +377,7 @@ struct Image
 
 		// Allocate memory
 		vk::MemoryRequirements requirements = context.device->getImageMemoryRequirements(*image);
-		uint32_t memoryTypeIndex = context.findMemoryType(requirements.memoryTypeBits,
-														  vk::MemoryPropertyFlagBits::eDeviceLocal);
+		uint32_t memoryTypeIndex = context.findMemoryType(requirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal);
 		memory = context.device->allocateMemoryUnique({ requirements.size, memoryTypeIndex });
 		context.device->bindImageMemory(*image, *memory, 0);
 
@@ -408,8 +405,8 @@ struct Image
 
 struct Accel
 {
-	Accel(Context& context, vk::AccelerationStructureGeometryKHR geometry, uint32_t primitiveCount,
-		  vk::AccelerationStructureTypeKHR type)
+	Accel(Context& context, vk::AccelerationStructureGeometryKHR geometry,
+		  uint32_t primitiveCount, vk::AccelerationStructureTypeKHR type)
 	{
 		auto buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR()
 			.setType(type)
@@ -443,14 +440,9 @@ struct Accel
 		accelInfo = vk::WriteDescriptorSetAccelerationStructureKHR{ *accel };
 	}
 
-	vk::UniqueAccelerationStructureKHR accel;
 	Buffer buffer;
+	vk::UniqueAccelerationStructureKHR accel;
 	vk::WriteDescriptorSetAccelerationStructureKHR accelInfo;
-};
-
-struct PushConstants
-{
-	int frame = 0;
 };
 
 int main()
@@ -550,7 +542,7 @@ int main()
 
 		auto pushRange = vk::PushConstantRange()
 			.setOffset(0)
-			.setSize(sizeof(PushConstants))
+			.setSize(sizeof(int))
 			.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
 		vk::UniquePipelineLayout pipelineLayout = context.device->createPipelineLayoutUnique({ {}, *descSetLayout, pushRange });
 
@@ -625,7 +617,7 @@ int main()
 		}
 
 		size_t currentFrame = 0;
-		PushConstants pushConstants;
+		int frame = 0;
 		while (!glfwWindowShouldClose(context.window)) {
 			glfwPollEvents();
 
@@ -641,7 +633,7 @@ int main()
 			commandBuffer.begin(vk::CommandBufferBeginInfo{});
 			commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
 			commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout, 0, *descSet, nullptr);
-			commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(PushConstants), &pushConstants);
+			commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(int), &frame);
 			commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
 
 			using vkIL = vk::ImageLayout;
@@ -680,7 +672,7 @@ int main()
 			}
 
 			currentFrame = (currentFrame + 1) % maxFramesInFlight;
-			pushConstants.frame++;
+			frame++;
 		}
 		context.device->waitIdle();
 		for (size_t i = 0; i < maxFramesInFlight; i++) {
