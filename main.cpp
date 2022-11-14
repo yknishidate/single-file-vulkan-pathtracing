@@ -312,13 +312,6 @@ struct Buffer
 
 	Buffer() = default;
 
-	void copy(const void* data)
-	{
-		void* mapped = Context::device->mapMemory(*memory, 0, size);
-		memcpy(mapped, data, size);
-		Context::device->unmapMemory(*memory);
-	}
-
 	void create(Type type, vk::DeviceSize size, const void* data = nullptr)
 	{
 		vk::BufferUsageFlags usage;
@@ -363,7 +356,9 @@ struct Buffer
 		bufferInfo = vk::DescriptorBufferInfo{ *buffer, 0, size };
 
 		if (data) {
-			copy(data);
+			void* mapped = Context::device->mapMemory(*memory, 0, size);
+			memcpy(mapped, data, size);
+			Context::device->unmapMemory(*memory);
 		}
 	}
 };
@@ -466,18 +461,206 @@ public:
 	{
 		outputImage.create({ WIDTH, HEIGHT }, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst);
 		loadFromFile(vertices, indices, faces);
-		createMeshBuffers();
-		createBottomLevelAS();
-		createTopLevelAS();
-		loadShaders();
-		createRayTracingPipeLine();
-		createShaderBindingTable();
-		createDescriptorSets();
+
+		vertexBuffer.create(Buffer::Type::AccelInput, sizeof(Vertex) * vertices.size(), vertices.data());
+		indexBuffer.create(Buffer::Type::AccelInput, sizeof(uint32_t) * indices.size(), indices.data());
+		faceBuffer.create(Buffer::Type::AccelInput, sizeof(Face) * faces.size(), faces.data());
+
+		auto triangleData = vk::AccelerationStructureGeometryTrianglesDataKHR()
+			.setVertexFormat(vk::Format::eR32G32B32Sfloat)
+			.setVertexData(vertexBuffer.deviceAddress)
+			.setVertexStride(sizeof(Vertex))
+			.setMaxVertex(static_cast<uint32_t>(vertices.size()))
+			.setIndexType(vk::IndexType::eUint32)
+			.setIndexData(indexBuffer.deviceAddress);
+
+		auto triangleGeometry = vk::AccelerationStructureGeometryKHR()
+			.setGeometryType(vk::GeometryTypeKHR::eTriangles)
+			.setGeometry({ triangleData })
+			.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+
+		auto primitiveCount = static_cast<uint32_t>(indices.size() / 3);
+		bottomAccel.create(triangleGeometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel);
+
+		vk::TransformMatrixKHR transformMatrix = std::array{
+			std::array{1.0f, 0.0f, 0.0f, 0.0f },
+			std::array{0.0f, 1.0f, 0.0f, 0.0f },
+			std::array{0.0f, 0.0f, 1.0f, 0.0f } };
+
+		auto asInstance = vk::AccelerationStructureInstanceKHR()
+			.setTransform(transformMatrix)
+			.setMask(0xFF)
+			.setAccelerationStructureReference(bottomAccel.buffer.deviceAddress)
+			.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
+
+		Buffer instancesBuffer;
+		instancesBuffer.create(Buffer::Type::AccelInput, sizeof(vk::AccelerationStructureInstanceKHR), &asInstance);
+
+		auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR()
+			.setArrayOfPointers(false)
+			.setData(instancesBuffer.deviceAddress);
+
+		auto instanceGeometry = vk::AccelerationStructureGeometryKHR()
+			.setGeometryType(vk::GeometryTypeKHR::eInstances)
+			.setGeometry({ instancesData })
+			.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+
+		topAccel.create(instanceGeometry, 1, vk::AccelerationStructureTypeKHR::eTopLevel);
+
+
+		const uint32_t raygenIndex = 0;
+		const uint32_t missIndex = 1;
+		const uint32_t chitIndex = 2;
+
+		shaderModules.push_back(createShaderModule("../shaders/raygen.rgen.spv"));
+		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules.back(), "main" });
+		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
+							   raygenIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+
+		shaderModules.push_back(createShaderModule("../shaders/miss.rmiss.spv"));
+		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eMissKHR, *shaderModules.back(), "main" });
+		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
+							   missIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+
+		shaderModules.push_back(createShaderModule("../shaders/closesthit.rchit.spv"));
+		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules.back(), "main" });
+		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
+							   VK_SHADER_UNUSED_KHR, chitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
+
+		// create ray tracing pipeline
+		using vkDT = vk::DescriptorType;
+		using vkSS = vk::ShaderStageFlagBits;
+		bindings.push_back({ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }); // Binding = 0 : TLAS
+		bindings.push_back({ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
+		bindings.push_back({ 2, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
+		bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
+		bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Faces
+
+		descSetLayout = Context::device->createDescriptorSetLayoutUnique({ {}, bindings });
+
+		auto pushRange = vk::PushConstantRange()
+			.setOffset(0)
+			.setSize(sizeof(PushConstants))
+			.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+		pipelineLayout = Context::device->createPipelineLayoutUnique({ {}, *descSetLayout, pushRange });
+
+		// Create pipeline
+		auto res = Context::device->createRayTracingPipelineKHRUnique(
+			nullptr, nullptr,
+			vk::RayTracingPipelineCreateInfoKHR()
+			.setStages(shaderStages)
+			.setGroups(shaderGroups)
+			.setMaxPipelineRayRecursionDepth(4)
+			.setLayout(*pipelineLayout));
+		if (res.result != vk::Result::eSuccess) {
+			throw std::runtime_error("failed to create ray tracing pipeline.");
+		}
+		pipeline = std::move(res.value);
+
+
+		// Get Ray Tracing Properties
+		using vkRTP = vk::PhysicalDeviceRayTracingPipelinePropertiesKHR;
+		vkRTP rtProperties = Context::physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vkRTP>().get<vkRTP>();
+
+		// Calculate SBT size
+		uint32_t handleSize = rtProperties.shaderGroupHandleSize;
+		uint32_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
+		uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
+		uint32_t sbtSize = groupCount * handleSizeAligned;
+
+		// Get shader group handles
+		std::vector<uint8_t> handleStorage(sbtSize);
+		if (Context::device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize, handleStorage.data()) != vk::Result::eSuccess) {
+			throw std::runtime_error("failed to get ray tracing shader group handles.");
+		}
+
+		raygenSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 0 * handleSizeAligned);
+		missSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 1 * handleSizeAligned);
+		hitSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 2 * handleSizeAligned);
+
+		uint32_t stride = rtProperties.shaderGroupHandleAlignment;
+		uint32_t size = rtProperties.shaderGroupHandleAlignment;
+		raygenRegion = vk::StridedDeviceAddressRegionKHR{ raygenSBT.deviceAddress, stride, size };
+		missRegion = vk::StridedDeviceAddressRegionKHR{ missSBT.deviceAddress, stride, size };
+		hitRegion = vk::StridedDeviceAddressRegionKHR{ hitSBT.deviceAddress, stride, size };
+
+		descSet = Context::allocateDescSet(*descSetLayout);
+
+		std::vector<vk::WriteDescriptorSet> writes(bindings.size());
+		for (int i = 0; i < bindings.size(); i++) {
+			writes[i].setDstSet(*descSet);
+			writes[i].setDescriptorType(bindings[i].descriptorType);
+			writes[i].setDescriptorCount(bindings[i].descriptorCount);
+			writes[i].setDstBinding(bindings[i].binding);
+		}
+		writes[0].setPNext(&topAccel.accelInfo);
+		writes[1].setImageInfo(outputImage.imageInfo);
+		writes[2].setBufferInfo(vertexBuffer.bufferInfo);
+		writes[3].setBufferInfo(indexBuffer.bufferInfo);
+		writes[4].setBufferInfo(faceBuffer.bufferInfo);
+		Context::device->updateDescriptorSets(writes, nullptr);
+
 		drawCommandBuffers = Context::allocateCommandBuffers(Context::swapchainImages.size());
-		createSyncObjects();
+
+		imageAvailableSemaphores.resize(maxFramesInFlight);
+		renderFinishedSemaphores.resize(maxFramesInFlight);
+		inFlightFences.resize(maxFramesInFlight);
+
+		for (size_t i = 0; i < maxFramesInFlight; i++) {
+			imageAvailableSemaphores[i] = Context::device->createSemaphoreUnique({});
+			renderFinishedSemaphores[i] = Context::device->createSemaphoreUnique({});
+			inFlightFences[i] = Context::device->createFence({ vk::FenceCreateFlagBits::eSignaled });
+		}
+
 		while (!glfwWindowShouldClose(Context::window)) {
 			glfwPollEvents();
-			drawFrame();
+
+			if (Context::device->waitForFences(inFlightFences[currentFrame], true, UINT64_MAX) != vk::Result::eSuccess) {
+				throw std::runtime_error("Failed to wait for fences");
+			}
+			Context::device->resetFences(inFlightFences[currentFrame]);
+
+			uint32_t imageIndex = Context::acquireNextImage(*imageAvailableSemaphores[currentFrame]);
+
+			auto commandBuffer = *drawCommandBuffers[imageIndex];
+			auto swapchainImage = Context::swapchainImages[imageIndex];
+			commandBuffer.begin(vk::CommandBufferBeginInfo{});
+			commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
+			commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout, 0, *descSet, nullptr);
+			commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(PushConstants), &pushConstants);
+			commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
+
+			using vkIL = vk::ImageLayout;
+			setImageLayout(commandBuffer, *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
+			setImageLayout(commandBuffer, swapchainImage, vkIL::eUndefined, vkIL::eTransferDstOptimal);
+
+			copyImage(commandBuffer, *outputImage.image, swapchainImage);
+
+			setImageLayout(commandBuffer, *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
+			setImageLayout(commandBuffer, swapchainImage, vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
+			commandBuffer.end();
+
+			// Submit draw command
+			vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };
+			Context::queue.submit(
+				vk::SubmitInfo()
+				.setWaitSemaphores(*imageAvailableSemaphores[currentFrame])
+				.setWaitDstStageMask(waitStage)
+				.setCommandBuffers(*drawCommandBuffers[imageIndex])
+				.setSignalSemaphores(*renderFinishedSemaphores[currentFrame]),
+				inFlightFences[currentFrame]);
+
+			// Present image
+			auto presentInfo = vk::PresentInfoKHR()
+				.setWaitSemaphores(*renderFinishedSemaphores[currentFrame])
+				.setSwapchains(*Context::swapchain)
+				.setImageIndices(imageIndex);
+			if (Context::queue.presentKHR(presentInfo) != vk::Result::eSuccess) {
+				throw std::runtime_error("Failed to present");
+			}
+
+			currentFrame = (currentFrame + 1) % maxFramesInFlight;
+			pushConstants.frame++;
 		}
 		Context::device->waitIdle();
 		for (size_t i = 0; i < maxFramesInFlight; i++) {
@@ -524,186 +707,10 @@ private:
 	size_t currentFrame = 0;
 	int maxFramesInFlight = 2;
 
-	void createMeshBuffers()
-	{
-		vertexBuffer.create(Buffer::Type::AccelInput, sizeof(Vertex) * vertices.size(), vertices.data());
-		indexBuffer.create(Buffer::Type::AccelInput, sizeof(uint32_t) * indices.size(), indices.data());
-		faceBuffer.create(Buffer::Type::AccelInput, sizeof(Face) * faces.size(), faces.data());
-	}
-
-	void createBottomLevelAS()
-	{
-		auto triangleData = vk::AccelerationStructureGeometryTrianglesDataKHR()
-			.setVertexFormat(vk::Format::eR32G32B32Sfloat)
-			.setVertexData(vertexBuffer.deviceAddress)
-			.setVertexStride(sizeof(Vertex))
-			.setMaxVertex(static_cast<uint32_t>(vertices.size()))
-			.setIndexType(vk::IndexType::eUint32)
-			.setIndexData(indexBuffer.deviceAddress);
-
-		auto geometry = vk::AccelerationStructureGeometryKHR()
-			.setGeometryType(vk::GeometryTypeKHR::eTriangles)
-			.setGeometry({ triangleData })
-			.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
-
-		auto primitiveCount = static_cast<uint32_t>(indices.size() / 3);
-		bottomAccel.create(geometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel);
-	}
-
-	void createTopLevelAS()
-	{
-		vk::TransformMatrixKHR transformMatrix = std::array{
-			std::array{1.0f, 0.0f, 0.0f, 0.0f },
-			std::array{0.0f, 1.0f, 0.0f, 0.0f },
-			std::array{0.0f, 0.0f, 1.0f, 0.0f } };
-
-		auto asInstance = vk::AccelerationStructureInstanceKHR()
-			.setTransform(transformMatrix)
-			.setMask(0xFF)
-			.setAccelerationStructureReference(bottomAccel.buffer.deviceAddress)
-			.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
-
-		Buffer instancesBuffer;
-		instancesBuffer.create(Buffer::Type::AccelInput, sizeof(vk::AccelerationStructureInstanceKHR), &asInstance);
-
-		auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR()
-			.setArrayOfPointers(false)
-			.setData(instancesBuffer.deviceAddress);
-
-		auto geometry = vk::AccelerationStructureGeometryKHR()
-			.setGeometryType(vk::GeometryTypeKHR::eInstances)
-			.setGeometry({ instancesData })
-			.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
-
-		uint32_t primitiveCount = 1;
-		topAccel.create(geometry, primitiveCount, vk::AccelerationStructureTypeKHR::eTopLevel);
-	}
-
-	void loadShaders()
-	{
-		const uint32_t raygenIndex = 0;
-		const uint32_t missIndex = 1;
-		const uint32_t chitIndex = 2;
-
-		shaderModules.push_back(createShaderModule("../shaders/raygen.rgen.spv"));
-		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules.back(), "main" });
-		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
-							   raygenIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
-
-		shaderModules.push_back(createShaderModule("../shaders/miss.rmiss.spv"));
-		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eMissKHR, *shaderModules.back(), "main" });
-		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eGeneral,
-							   missIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
-
-		shaderModules.push_back(createShaderModule("../shaders/closesthit.rchit.spv"));
-		shaderStages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules.back(), "main" });
-		shaderGroups.push_back({ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
-							   VK_SHADER_UNUSED_KHR, chitIndex, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR });
-	}
-
 	vk::UniqueShaderModule createShaderModule(const std::string& filename)
 	{
 		const std::vector<char> code = readFile(filename);
 		return Context::device->createShaderModuleUnique({ {}, code.size(), reinterpret_cast<const uint32_t*>(code.data()) });
-	}
-
-	void createRayTracingPipeLine()
-	{
-		using vkDT = vk::DescriptorType;
-		using vkSS = vk::ShaderStageFlagBits;
-		bindings.push_back({ 0, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR }); // Binding = 0 : TLAS
-		bindings.push_back({ 1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR });             // Binding = 1 : Storage image
-		bindings.push_back({ 2, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 2 : Vertices
-		bindings.push_back({ 3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 3 : Indices
-		bindings.push_back({ 4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR });        // Binding = 4 : Faces
-
-		descSetLayout = Context::device->createDescriptorSetLayoutUnique({ {}, bindings });
-
-		auto pushRange = vk::PushConstantRange()
-			.setOffset(0)
-			.setSize(sizeof(PushConstants))
-			.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
-		pipelineLayout = Context::device->createPipelineLayoutUnique({ {}, *descSetLayout, pushRange });
-
-		// Create pipeline
-		auto res = Context::device->createRayTracingPipelineKHRUnique(
-			nullptr, nullptr,
-			vk::RayTracingPipelineCreateInfoKHR()
-			.setStages(shaderStages)
-			.setGroups(shaderGroups)
-			.setMaxPipelineRayRecursionDepth(4)
-			.setLayout(*pipelineLayout));
-		if (res.result != vk::Result::eSuccess) {
-			throw std::runtime_error("failed to create ray tracing pipeline.");
-		}
-		pipeline = std::move(res.value);
-	}
-
-	void createShaderBindingTable()
-	{
-		// Get Ray Tracing Properties
-		using vkRTP = vk::PhysicalDeviceRayTracingPipelinePropertiesKHR;
-		vkRTP rtProperties = Context::physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vkRTP>().get<vkRTP>();
-
-		// Calculate SBT size
-		uint32_t handleSize = rtProperties.shaderGroupHandleSize;
-		uint32_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
-		uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
-		uint32_t sbtSize = groupCount * handleSizeAligned;
-
-		// Get shader group handles
-		std::vector<uint8_t> handleStorage(sbtSize);
-		if (Context::device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize, handleStorage.data()) != vk::Result::eSuccess) {
-			throw std::runtime_error("failed to get ray tracing shader group handles.");
-		}
-
-		raygenSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 0 * handleSizeAligned);
-		missSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 1 * handleSizeAligned);
-		hitSBT.create(Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 2 * handleSizeAligned);
-
-		uint32_t stride = rtProperties.shaderGroupHandleAlignment;
-		uint32_t size = rtProperties.shaderGroupHandleAlignment;
-		raygenRegion = vk::StridedDeviceAddressRegionKHR{ raygenSBT.deviceAddress, stride, size };
-		missRegion = vk::StridedDeviceAddressRegionKHR{ missSBT.deviceAddress, stride, size };
-		hitRegion = vk::StridedDeviceAddressRegionKHR{ hitSBT.deviceAddress, stride, size };
-	}
-
-	void createDescriptorSets()
-	{
-		descSet = Context::allocateDescSet(*descSetLayout);
-
-		std::vector<vk::WriteDescriptorSet> writes(bindings.size());
-		for (int i = 0; i < bindings.size(); i++) {
-			writes[i].setDstSet(*descSet);
-			writes[i].setDescriptorType(bindings[i].descriptorType);
-			writes[i].setDescriptorCount(bindings[i].descriptorCount);
-			writes[i].setDstBinding(bindings[i].binding);
-		}
-		writes[0].setPNext(&topAccel.accelInfo);
-		writes[1].setImageInfo(outputImage.imageInfo);
-		writes[2].setBufferInfo(vertexBuffer.bufferInfo);
-		writes[3].setBufferInfo(indexBuffer.bufferInfo);
-		writes[4].setBufferInfo(faceBuffer.bufferInfo);
-		Context::device->updateDescriptorSets(writes, nullptr);
-	}
-
-	void recordCommandBuffers(vk::CommandBuffer commandBuffer, vk::Image swapchainImage)
-	{
-		commandBuffer.begin(vk::CommandBufferBeginInfo{});
-		commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
-		commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout, 0, *descSet, nullptr);
-		commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(PushConstants), &pushConstants);
-		commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
-
-		using vkIL = vk::ImageLayout;
-		setImageLayout(commandBuffer, *outputImage.image, vkIL::eUndefined, vkIL::eTransferSrcOptimal);
-		setImageLayout(commandBuffer, swapchainImage, vkIL::eUndefined, vkIL::eTransferDstOptimal);
-
-		copyImage(commandBuffer, *outputImage.image, swapchainImage);
-
-		setImageLayout(commandBuffer, *outputImage.image, vkIL::eTransferSrcOptimal, vkIL::eGeneral);
-		setImageLayout(commandBuffer, swapchainImage, vkIL::eTransferDstOptimal, vkIL::ePresentSrcKHR);
-		commandBuffer.end();
 	}
 
 	void copyImage(vk::CommandBuffer& cmdBuf, vk::Image& srcImage, vk::Image& dstImage)
@@ -716,51 +723,6 @@ private:
 						 dstImage, vk::ImageLayout::eTransferDstOptimal, copyRegion);
 	}
 
-	void createSyncObjects()
-	{
-		imageAvailableSemaphores.resize(maxFramesInFlight);
-		renderFinishedSemaphores.resize(maxFramesInFlight);
-		inFlightFences.resize(maxFramesInFlight);
-
-		for (size_t i = 0; i < maxFramesInFlight; i++) {
-			imageAvailableSemaphores[i] = Context::device->createSemaphoreUnique({});
-			renderFinishedSemaphores[i] = Context::device->createSemaphoreUnique({});
-			inFlightFences[i] = Context::device->createFence({ vk::FenceCreateFlagBits::eSignaled });
-		}
-	}
-
-	void drawFrame()
-	{
-		if (Context::device->waitForFences(inFlightFences[currentFrame], true, UINT64_MAX) != vk::Result::eSuccess) {
-			throw std::runtime_error("Failed to wait for fences");
-		}
-		Context::device->resetFences(inFlightFences[currentFrame]);
-
-		uint32_t imageIndex = Context::acquireNextImage(*imageAvailableSemaphores[currentFrame]);
-		recordCommandBuffers(*drawCommandBuffers[imageIndex], Context::swapchainImages[imageIndex]);
-
-		// Submit draw command
-		vk::PipelineStageFlags waitStage{ vk::PipelineStageFlagBits::eRayTracingShaderKHR };
-		Context::queue.submit(
-			vk::SubmitInfo()
-			.setWaitSemaphores(*imageAvailableSemaphores[currentFrame])
-			.setWaitDstStageMask(waitStage)
-			.setCommandBuffers(*drawCommandBuffers[imageIndex])
-			.setSignalSemaphores(*renderFinishedSemaphores[currentFrame]),
-			inFlightFences[currentFrame]);
-
-		// Present image
-		auto presentInfo = vk::PresentInfoKHR()
-			.setWaitSemaphores(*renderFinishedSemaphores[currentFrame])
-			.setSwapchains(*Context::swapchain)
-			.setImageIndices(imageIndex);
-		if (Context::queue.presentKHR(presentInfo) != vk::Result::eSuccess) {
-			throw std::runtime_error("Failed to present");
-		}
-
-		currentFrame = (currentFrame + 1) % maxFramesInFlight;
-		pushConstants.frame++;
-	}
 };
 
 int main()
