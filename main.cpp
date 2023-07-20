@@ -528,8 +528,8 @@ struct App
         vk::UniquePipeline pipeline = std::move(res.value);
 
         // Get Ray Tracing Properties
-        using vkRTP = vk::PhysicalDeviceRayTracingPipelinePropertiesKHR;
-        vkRTP rtProperties = context.physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vkRTP>().get<vkRTP>();
+        auto properties = context.physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+        auto rtProperties = properties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 
         // Calculate SBT size
         uint32_t handleSize = rtProperties.shaderGroupHandleSize;
