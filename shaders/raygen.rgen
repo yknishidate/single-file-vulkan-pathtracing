@@ -7,7 +7,7 @@ layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 1, set = 0, rgba8) uniform image2D outputImage;
 layout(push_constant) uniform PushConstants {
     int frame;
-} pushConstants;
+};
 
 layout(location = 0) rayPayloadEXT HitPayload payload;
 
@@ -44,7 +44,7 @@ void main()
     vec3 color = vec3(0.0);
     for(uint sampleNum = 0; sampleNum < maxSamples; sampleNum++){
         // Calc seed
-        uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleNum + maxSamples * pushConstants.frame + 1));
+        uvec2 s = pcg2d(ivec2(gl_LaunchIDEXT.xy) * (sampleNum + maxSamples * frame + 1));
         uint seed = s.x + s.y;
 
         // Calc ray
@@ -87,6 +87,6 @@ void main()
     
     vec4 oldColor = imageLoad(outputImage, ivec2(gl_LaunchIDEXT.xy));
     vec4 newColor = vec4(color, 1.0);
-    newColor = (newColor + (oldColor * pushConstants.frame)) / (pushConstants.frame + 1);
+    newColor = (newColor + (oldColor * frame)) / (frame + 1);
     imageStore(outputImage, ivec2(gl_LaunchIDEXT.xy), newColor);
 }
