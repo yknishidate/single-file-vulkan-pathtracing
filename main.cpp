@@ -183,7 +183,7 @@ struct Context {
         throw std::runtime_error("failed to find suitable memory type");
     }
 
-    void oneTimeSubmit(const std::function<void(vk::CommandBuffer)>& func) {
+    void oneTimeSubmit(const std::function<void(vk::CommandBuffer)>& func) const {
         vk::UniqueCommandBuffer commandBuffer = std::move(device->allocateCommandBuffersUnique(
             vk::CommandBufferAllocateInfo()
             .setCommandPool(*commandPool)
@@ -232,7 +232,7 @@ struct Buffer {
 
     Buffer() = default;
 
-    Buffer(Context& context, Type type, vk::DeviceSize size, const void* data = nullptr) {
+    Buffer(const Context& context, Type type, vk::DeviceSize size, const void* data = nullptr) {
         vk::BufferUsageFlags usage;
         vk::MemoryPropertyFlags memoryProps;
         using Usage = vk::BufferUsageFlagBits;
@@ -287,7 +287,7 @@ struct Buffer {
 };
 
 struct Image {
-    Image(Context& context, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage) {
+    Image(const Context& context, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage) {
         // Create image
         image = context.device->createImageUnique(
             vk::ImageCreateInfo()
@@ -313,7 +313,7 @@ struct Image {
             .setFormat(format)
             .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 }));
 
-        // Set image layout
+        // Set image info
         imageInfo = { {}, *view, vk::ImageLayout::eGeneral };
     }
 
@@ -360,7 +360,7 @@ struct Image {
 };
 
 struct Accel {
-    Accel(Context& context, vk::AccelerationStructureGeometryKHR geometry,
+    Accel(const Context& context, vk::AccelerationStructureGeometryKHR geometry,
           uint32_t primitiveCount, vk::AccelerationStructureTypeKHR type) {
         auto buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR()
             .setType(type)
