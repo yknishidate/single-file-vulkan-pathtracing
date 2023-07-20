@@ -573,56 +573,45 @@ struct App
         while (!glfwWindowShouldClose(context.window)) {
             glfwPollEvents();
 
-            acquireNextImage();
-            submitCommands([&](auto commandBuffer) {
-                commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
+            // Acquire next image
+            vk::Semaphore imageAcquiredSemaphore = context.device->createSemaphore(vk::SemaphoreCreateInfo());
+            frameIndex = context.device->acquireNextImageKHR(*swapchain, UINT64_MAX, imageAcquiredSemaphore).value;
+            context.device->destroySemaphore(imageAcquiredSemaphore);
+
+            // Record commands
+            vk::CommandBuffer commandBuffer = *commandBuffers[frameIndex];
+            commandBuffer.begin(vk::CommandBufferBeginInfo());
+            commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
             commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout, 0, *descSet, nullptr);
             commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(int), &frame);
             commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
-            copyToBackImage(*outputImage.image);
-            });
-            present();
+
+            vk::Image srcImage = *outputImage.image;
+            vk::Image dstImage = swapchainImages[frameIndex];
+            Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal);
+            Image::setImageLayout(commandBuffer, dstImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+            Image::copyImage(commandBuffer, srcImage, dstImage);
+            Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral);
+            Image::setImageLayout(commandBuffer, dstImage, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR);
+
+            commandBuffer.end();
+
+            // Submit
+            context.queue.submit(vk::SubmitInfo().setCommandBuffers(commandBuffer));
+
+            // Present image
+            auto result = context.queue.presentKHR(vk::PresentInfoKHR()
+                                                   .setSwapchains(*swapchain)
+                                                   .setImageIndices(frameIndex));
+            if (result != vk::Result::eSuccess) {
+                throw std::runtime_error("failed to present.");
+            }
             context.queue.waitIdle();
             frame++;
         }
         context.device->waitIdle();
         glfwDestroyWindow(context.window);
         glfwTerminate();
-    }
-
-    void acquireNextImage() {
-        const vk::Semaphore imageAcquiredSemaphore = context.device->createSemaphore(vk::SemaphoreCreateInfo());
-        frameIndex = context.device->acquireNextImageKHR(*swapchain, UINT64_MAX, imageAcquiredSemaphore).value;
-        context.device->destroySemaphore(imageAcquiredSemaphore);
-    }
-
-    void submitCommands(const std::function<void(vk::CommandBuffer)>& function) {
-        vk::CommandBuffer commandBuffer = *commandBuffers[frameIndex];
-        commandBuffer.begin(vk::CommandBufferBeginInfo());
-
-        function(commandBuffer);
-
-        commandBuffer.end();
-        context.queue.submit(vk::SubmitInfo().setCommandBuffers(commandBuffer));
-    }
-
-    void copyToBackImage(vk::Image srcImage) {
-        vk::CommandBuffer commandBuffer = *commandBuffers[frameIndex];
-        vk::Image backImage = swapchainImages[frameIndex];
-        Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal);
-        Image::setImageLayout(commandBuffer, backImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-        Image::copyImage(commandBuffer, srcImage, backImage);
-        Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral);
-        Image::setImageLayout(commandBuffer, backImage, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR);
-    }
-
-    void present() {
-        auto result = context.queue.presentKHR(vk::PresentInfoKHR()
-                                               .setSwapchains(*swapchain)
-                                               .setImageIndices(frameIndex));
-        if (result != vk::Result::eSuccess) {
-            throw std::runtime_error("failed to present.");
-        }
     }
 
     Context context;
