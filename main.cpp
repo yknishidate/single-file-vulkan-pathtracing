@@ -231,7 +231,6 @@ struct Buffer {
     };
 
     Buffer() = default;
-
     Buffer(const Context& context, Type type, vk::DeviceSize size, const void* data = nullptr) {
         vk::BufferUsageFlags usage;
         vk::MemoryPropertyFlags memoryProps;
@@ -287,6 +286,7 @@ struct Buffer {
 };
 
 struct Image {
+    Image() = default;
     Image(const Context& context, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage) {
         // Create image
         image = context.device->createImageUnique(
@@ -360,6 +360,7 @@ struct Image {
 };
 
 struct Accel {
+    Accel() = default;
     Accel(const Context& context, vk::AccelerationStructureGeometryKHR geometry,
           uint32_t primitiveCount, vk::AccelerationStructureTypeKHR type) {
         auto buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR()
@@ -427,7 +428,7 @@ struct App
 
     void run()
     {
-        Image outputImage{ context, {WIDTH, HEIGHT}, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst };
+        outputImage = Image{ context, {WIDTH, HEIGHT}, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst };
 
         std::vector<Vertex> vertices;
         std::vector<uint32_t> indices;
@@ -619,6 +620,7 @@ struct App
     std::vector<vk::Image> swapchainImages;
     std::vector<vk::UniqueCommandBuffer> commandBuffers;
     uint32_t frameIndex = 0;
+    Image outputImage;
 };
 
 int main() {
