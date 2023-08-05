@@ -296,7 +296,6 @@ struct Image {
             .setMipLevels(1)
             .setArrayLayers(1)
             .setFormat(format)
-            .setInitialLayout(vk::ImageLayout::eGeneral)
             .setUsage(usage));
 
         // Allocate memory
@@ -315,6 +314,10 @@ struct Image {
 
         // Set image info
         imageInfo = { {}, *view, vk::ImageLayout::eGeneral };
+        context.oneTimeSubmit(
+            [&](vk::CommandBuffer cmdBuf) {
+            setImageLayout(cmdBuf, *image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
+        });
     }
 
     static vk::AccessFlags toAccessFlags(vk::ImageLayout layout) {
