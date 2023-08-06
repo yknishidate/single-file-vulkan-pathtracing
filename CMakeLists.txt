@@ -7,7 +7,10 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/glfw)
 
-add_executable(single-file-vulkan-pathtracing main.cpp)
+file(GLOB SHADERS shaders/*)
+add_executable(single-file-vulkan-pathtracing main.cpp ${SHADERS})
+
+source_group("Shader Files" FILES ${SHADERS})
 
 target_link_libraries(${PROJECT_NAME} PUBLIC glfw)
 target_include_directories(${PROJECT_NAME} PUBLIC 
