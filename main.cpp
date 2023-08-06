@@ -87,13 +87,13 @@ struct Context {
         std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
-        std::vector layers{ "VK_LAYER_KHRONOS_validation", "VK_LAYER_LUNARG_monitor" };
+        std::vector layers{ "VK_LAYER_KHRONOS_validation" };
 
         auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
         VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
         auto appInfo = vk::ApplicationInfo()
-            .setApiVersion(VK_API_VERSION_1_2);
+            .setApiVersion(VK_API_VERSION_1_3);
 
         instance = vk::createInstanceUnique({ {}, &appInfo, layers, extensions });
         VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
@@ -151,8 +151,9 @@ struct Context {
         vk::StructureChain<vk::DeviceCreateInfo,
             vk::PhysicalDeviceBufferDeviceAddressFeatures,
             vk::PhysicalDeviceRayTracingPipelineFeaturesKHR,
-            vk::PhysicalDeviceAccelerationStructureFeaturesKHR>
-            createInfoChain{ createInfo, {true}, {true}, {true} };
+            vk::PhysicalDeviceAccelerationStructureFeaturesKHR,
+            vk::PhysicalDeviceRayTracingPositionFetchFeaturesKHR>
+            createInfoChain{createInfo, {true}, {true}, {true}, {true}};
 
         device = physicalDevice.createDeviceUnique(createInfoChain.get<vk::DeviceCreateInfo>());
         VULKAN_HPP_DEFAULT_DISPATCHER.init(*device);
@@ -391,10 +392,11 @@ struct Accel {
     Accel() = default;
     Accel(const Context& context, vk::AccelerationStructureGeometryKHR geometry,
           uint32_t primitiveCount, vk::AccelerationStructureTypeKHR type) {
-        auto buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR()
-            .setType(type)
-            .setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
-            .setGeometries(geometry);
+        vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
+        buildGeometryInfo.setType(type);
+        buildGeometryInfo.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace | 
+                                   vk::BuildAccelerationStructureFlagBitsKHR::eAllowDataAccess);
+        buildGeometryInfo.setGeometries(geometry);
 
         // Create buffer
         vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = context.device->getAccelerationStructureBuildSizesKHR(
