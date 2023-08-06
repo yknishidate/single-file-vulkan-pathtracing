@@ -139,7 +139,12 @@ struct Context {
             VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
             VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
             VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME,
         };
+
+        if (!checkDeviceExtensionSupport(deviceExtensions)) {
+            throw std::runtime_error("Some required extensions are not supported");
+        }
 
         vk::PhysicalDeviceFeatures deviceFeatures;
         vk::DeviceCreateInfo createInfo{ {}, queueCreateInfo, {}, deviceExtensions, &deviceFeatures };
@@ -171,6 +176,26 @@ struct Context {
             .setPoolSizes(poolSizes)
             .setMaxSets(1)
             .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet));
+    }
+
+    bool checkDeviceExtensionSupport(const std::vector<const char*>& requiredExtensions) const {
+        std::vector<vk::ExtensionProperties> availableExtensions = physicalDevice.enumerateDeviceExtensionProperties();
+        std::vector<std::string> requiredExtensionNames(requiredExtensions.begin(), requiredExtensions.end());
+
+        for (const auto& extension : availableExtensions) {
+            requiredExtensionNames.erase(std::remove(requiredExtensionNames.begin(), requiredExtensionNames.end(), extension.extensionName), requiredExtensionNames.end());
+        }
+
+        if (requiredExtensionNames.empty()) {
+            std::cout << "All required extensions are supported by the device." << std::endl;
+            return true;
+        } else {
+            std::cout << "The following required extensions are not supported by the device:" << std::endl;
+            for (const auto& name : requiredExtensionNames) {
+                std::cout << "\t" << name << std::endl;
+            }
+            return false;
+        }
     }
 
     uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const {
