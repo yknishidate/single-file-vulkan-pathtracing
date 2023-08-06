@@ -4,10 +4,10 @@
 
 # Environment
 
--   Vulkan SDK 1.2.162.0 or later
--   GPU / Driver that support Vulkan Ray Tracing
--   C++17
--   CMake
+- C++20
+- Vulkan SDK 1.3.250.1 or later
+- GPU / Driver that support Vulkan Ray Tracing
+  - NVIDIA Vulkan beta driver Windows 531.83, Linux 525.47.22 or later
 
 ## Setup
 
@@ -25,8 +25,8 @@ cmake . -Bbuild
 
 # References
 
--   [NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)
--   [Vulkan-Hpp](https://github.com/KhronosGroup/Vulkan-Hpp)
--   [Vulkan Tutorial](https://vulkan-tutorial.com/)
--   [SaschaWillems/Vulkan](https://github.com/SaschaWillems/Vulkan)
--   [vk_raytrace](https://github.com/nvpro-samples/vk_raytrace)
+- [NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)
+- [Vulkan-Hpp](https://github.com/KhronosGroup/Vulkan-Hpp)
+- [Vulkan Tutorial](https://vulkan-tutorial.com/)
+- [SaschaWillems/Vulkan](https://github.com/SaschaWillems/Vulkan)
+- [vk_raytrace](https://github.com/nvpro-samples/vk_raytrace)
