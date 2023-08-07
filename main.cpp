@@ -1,11 +1,12 @@
 
-#include <string>
 #include <fstream>
-#include <iostream>
 #include <functional>
+#include <iostream>
+#include <string>
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
+
 #include <GLFW/glfw3.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -25,7 +26,8 @@ struct Face {
     float emission[3];
 };
 
-void loadFromFile(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
+void loadFromFile(std::vector<Vertex>& vertices,
+                  std::vector<uint32_t>& indices,
                   std::vector<Face>& faces) {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -87,15 +89,15 @@ struct Context {
         std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
-        std::vector layers{ "VK_LAYER_KHRONOS_validation" };
+        std::vector layers{"VK_LAYER_KHRONOS_validation"};
 
-        auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+        auto vkGetInstanceProcAddr =
+            dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
         VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
-        auto appInfo = vk::ApplicationInfo()
-            .setApiVersion(VK_API_VERSION_1_3);
+        auto appInfo = vk::ApplicationInfo().setApiVersion(VK_API_VERSION_1_3);
 
-        instance = vk::createInstanceUnique({ {}, &appInfo, layers, extensions });
+        instance = vk::createInstanceUnique({{}, &appInfo, layers, extensions});
         VULKAN_HPP_DEFAULT_DISPATCHER.init(*instance);
 
         physicalDevice = instance->enumeratePhysicalDevices().front();
@@ -103,9 +105,9 @@ struct Context {
         // Create debug messenger
         messenger = instance->createDebugUtilsMessengerEXTUnique(
             vk::DebugUtilsMessengerCreateInfoEXT()
-            .setMessageSeverity(vk::DebugUtilsMessageSeverityFlagBitsEXT::eError)
-            .setMessageType(vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation)
-            .setPfnUserCallback(&debugUtilsMessengerCallback));
+                .setMessageSeverity(vk::DebugUtilsMessageSeverityFlagBitsEXT::eError)
+                .setMessageType(vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation)
+                .setPfnUserCallback(&debugUtilsMessengerCallback));
 
         // Create surface
         VkSurfaceKHR _surface;
@@ -113,7 +115,7 @@ struct Context {
         if (res != VK_SUCCESS) {
             throw std::runtime_error("failed to create window surface!");
         }
-        surface = vk::UniqueSurfaceKHR(vk::SurfaceKHR(_surface), { *instance });
+        surface = vk::UniqueSurfaceKHR(vk::SurfaceKHR(_surface), {*instance});
 
         // Find queue family
         auto queueFamilies = physicalDevice.getQueueFamilyProperties();
@@ -127,7 +129,7 @@ struct Context {
 
         // Create device
         float queuePriority = 1.0f;
-        vk::DeviceQueueCreateInfo queueCreateInfo{ {}, queueFamily, 1, &queuePriority };
+        vk::DeviceQueueCreateInfo queueCreateInfo{{}, queueFamily, 1, &queuePriority};
 
         const std::vector deviceExtensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -147,12 +149,11 @@ struct Context {
         }
 
         vk::PhysicalDeviceFeatures deviceFeatures;
-        vk::DeviceCreateInfo createInfo{ {}, queueCreateInfo, {}, deviceExtensions, &deviceFeatures };
-        vk::StructureChain<vk::DeviceCreateInfo,
-            vk::PhysicalDeviceBufferDeviceAddressFeatures,
-            vk::PhysicalDeviceRayTracingPipelineFeaturesKHR,
-            vk::PhysicalDeviceAccelerationStructureFeaturesKHR,
-            vk::PhysicalDeviceRayTracingPositionFetchFeaturesKHR>
+        vk::DeviceCreateInfo createInfo{{}, queueCreateInfo, {}, deviceExtensions, &deviceFeatures};
+        vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceBufferDeviceAddressFeatures,
+                           vk::PhysicalDeviceRayTracingPipelineFeaturesKHR,
+                           vk::PhysicalDeviceAccelerationStructureFeaturesKHR,
+                           vk::PhysicalDeviceRayTracingPositionFetchFeaturesKHR>
             createInfoChain{createInfo, {true}, {true}, {true}, {true}};
 
         device = physicalDevice.createDeviceUnique(createInfoChain.get<vk::DeviceCreateInfo>());
@@ -163,35 +164,39 @@ struct Context {
         // Create command pool
         commandPool = device->createCommandPoolUnique(
             vk::CommandPoolCreateInfo()
-            .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
-            .setQueueFamilyIndex(queueFamily));
+                .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
+                .setQueueFamilyIndex(queueFamily));
 
         // Create descriptor pool
         std::vector<vk::DescriptorPoolSize> poolSizes{
             {vk::DescriptorType::eAccelerationStructureKHR, 1},
             {vk::DescriptorType::eStorageImage, 1},
-            {vk::DescriptorType::eStorageBuffer, 3} };
+            {vk::DescriptorType::eStorageBuffer, 3}};
 
         descPool = device->createDescriptorPoolUnique(
-            vk::DescriptorPoolCreateInfo()
-            .setPoolSizes(poolSizes)
-            .setMaxSets(1)
-            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet));
+            vk::DescriptorPoolCreateInfo().setPoolSizes(poolSizes).setMaxSets(1).setFlags(
+                vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet));
     }
 
     bool checkDeviceExtensionSupport(const std::vector<const char*>& requiredExtensions) const {
-        std::vector<vk::ExtensionProperties> availableExtensions = physicalDevice.enumerateDeviceExtensionProperties();
-        std::vector<std::string> requiredExtensionNames(requiredExtensions.begin(), requiredExtensions.end());
+        std::vector<vk::ExtensionProperties> availableExtensions =
+            physicalDevice.enumerateDeviceExtensionProperties();
+        std::vector<std::string> requiredExtensionNames(requiredExtensions.begin(),
+                                                        requiredExtensions.end());
 
         for (const auto& extension : availableExtensions) {
-            requiredExtensionNames.erase(std::remove(requiredExtensionNames.begin(), requiredExtensionNames.end(), extension.extensionName), requiredExtensionNames.end());
+            requiredExtensionNames.erase(
+                std::remove(requiredExtensionNames.begin(), requiredExtensionNames.end(),
+                            extension.extensionName),
+                requiredExtensionNames.end());
         }
 
         if (requiredExtensionNames.empty()) {
             std::cout << "All required extensions are supported by the device." << std::endl;
             return true;
         } else {
-            std::cout << "The following required extensions are not supported by the device:" << std::endl;
+            std::cout << "The following required extensions are not supported by the device:"
+                      << std::endl;
             for (const auto& name : requiredExtensionNames) {
                 std::cout << "\t" << name << std::endl;
             }
@@ -202,7 +207,8 @@ struct Context {
     uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const {
         vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
         for (uint32_t i = 0; i != memProperties.memoryTypeCount; ++i) {
-            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            if ((typeFilter & (1 << i)) &&
+                (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
                 return i;
             }
         }
@@ -210,12 +216,13 @@ struct Context {
     }
 
     void oneTimeSubmit(const std::function<void(vk::CommandBuffer)>& func) const {
-        vk::UniqueCommandBuffer commandBuffer = std::move(device->allocateCommandBuffersUnique(
-            vk::CommandBufferAllocateInfo()
-            .setCommandPool(*commandPool)
-            .setCommandBufferCount(1))
-            .front());
-        commandBuffer->begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
+        vk::UniqueCommandBuffer commandBuffer =
+            std::move(device
+                          ->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo()
+                                                             .setCommandPool(*commandPool)
+                                                             .setCommandBufferCount(1))
+                          .front());
+        commandBuffer->begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
         func(*commandBuffer);
         commandBuffer->end();
 
@@ -224,13 +231,14 @@ struct Context {
     }
 
     vk::UniqueDescriptorSet allocateDescSet(vk::DescriptorSetLayout descSetLayout) {
-        return std::move(device->allocateDescriptorSetsUnique({ *descPool, descSetLayout }).front());
+        return std::move(device->allocateDescriptorSetsUnique({*descPool, descSetLayout}).front());
     }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL
-        debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                                    VkDebugUtilsMessageTypeFlagsEXT messageTypes,
-                                    VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData, void* pUserData) {
+    debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+                                VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData,
+                                void* pUserData) {
         std::cerr << pCallbackData->pMessage << std::endl;
         return VK_FALSE;
     }
@@ -263,7 +271,8 @@ struct Buffer {
         using Usage = vk::BufferUsageFlagBits;
         using Memory = vk::MemoryPropertyFlagBits;
         if (type == Type::AccelInput) {
-            usage = Usage::eAccelerationStructureBuildInputReadOnlyKHR | Usage::eStorageBuffer | Usage::eShaderDeviceAddress;
+            usage = Usage::eAccelerationStructureBuildInputReadOnlyKHR | Usage::eStorageBuffer |
+                    Usage::eShaderDeviceAddress;
             memoryProps = Memory::eHostVisible | Memory::eHostCoherent;
         } else if (type == Type::Scratch) {
             usage = Usage::eStorageBuffer | Usage::eShaderDeviceAddress;
@@ -276,27 +285,26 @@ struct Buffer {
             memoryProps = Memory::eHostVisible | Memory::eHostCoherent;
         }
 
-        buffer = context.device->createBufferUnique({ {}, size, usage });
+        buffer = context.device->createBufferUnique({{}, size, usage});
 
         // Allocate memory
         vk::MemoryRequirements requirements = context.device->getBufferMemoryRequirements(*buffer);
         uint32_t memoryTypeIndex = context.findMemoryType(requirements.memoryTypeBits, memoryProps);
 
-        vk::MemoryAllocateFlagsInfo flagsInfo{ vk::MemoryAllocateFlagBits::eDeviceAddress };
+        vk::MemoryAllocateFlagsInfo flagsInfo{vk::MemoryAllocateFlagBits::eDeviceAddress};
 
-        memory = context.device->allocateMemoryUnique(
-            vk::MemoryAllocateInfo()
-            .setAllocationSize(requirements.size)
-            .setMemoryTypeIndex(memoryTypeIndex)
-            .setPNext(&flagsInfo));
+        memory = context.device->allocateMemoryUnique(vk::MemoryAllocateInfo()
+                                                          .setAllocationSize(requirements.size)
+                                                          .setMemoryTypeIndex(memoryTypeIndex)
+                                                          .setPNext(&flagsInfo));
 
         context.device->bindBufferMemory(*buffer, *memory, 0);
 
         // Get device address
-        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{ *buffer };
+        vk::BufferDeviceAddressInfoKHR bufferDeviceAI{*buffer};
         deviceAddress = context.device->getBufferAddressKHR(&bufferDeviceAI);
 
-        bufferInfo = vk::DescriptorBufferInfo{ *buffer, 0, size };
+        bufferInfo = vk::DescriptorBufferInfo{*buffer, 0, size};
 
         if (data) {
             void* mapped = context.device->mapMemory(*memory, 0, size);
@@ -313,35 +321,37 @@ struct Buffer {
 
 struct Image {
     Image() = default;
-    Image(const Context& context, vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage) {
+    Image(const Context& context,
+          vk::Extent2D extent,
+          vk::Format format,
+          vk::ImageUsageFlags usage) {
         // Create image
-        image = context.device->createImageUnique(
-            vk::ImageCreateInfo()
-            .setImageType(vk::ImageType::e2D)
-            .setExtent({ extent.width, extent.height, 1 })
-            .setMipLevels(1)
-            .setArrayLayers(1)
-            .setFormat(format)
-            .setUsage(usage));
+        image = context.device->createImageUnique(vk::ImageCreateInfo()
+                                                      .setImageType(vk::ImageType::e2D)
+                                                      .setExtent({extent.width, extent.height, 1})
+                                                      .setMipLevels(1)
+                                                      .setArrayLayers(1)
+                                                      .setFormat(format)
+                                                      .setUsage(usage));
 
         // Allocate memory
         vk::MemoryRequirements requirements = context.device->getImageMemoryRequirements(*image);
-        uint32_t memoryTypeIndex = context.findMemoryType(requirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal);
-        memory = context.device->allocateMemoryUnique({ requirements.size, memoryTypeIndex });
+        uint32_t memoryTypeIndex = context.findMemoryType(requirements.memoryTypeBits,
+                                                          vk::MemoryPropertyFlagBits::eDeviceLocal);
+        memory = context.device->allocateMemoryUnique({requirements.size, memoryTypeIndex});
         context.device->bindImageMemory(*image, *memory, 0);
 
         // Create image view
         view = context.device->createImageViewUnique(
             vk::ImageViewCreateInfo()
-            .setImage(*image)
-            .setViewType(vk::ImageViewType::e2D)
-            .setFormat(format)
-            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 }));
+                .setImage(*image)
+                .setViewType(vk::ImageViewType::e2D)
+                .setFormat(format)
+                .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}));
 
         // Set image info
-        imageInfo = { {}, *view, vk::ImageLayout::eGeneral };
-        context.oneTimeSubmit(
-            [&](vk::CommandBuffer cmdBuf) {
+        imageInfo = {{}, *view, vk::ImageLayout::eGeneral};
+        context.oneTimeSubmit([&](vk::CommandBuffer cmdBuf) {
             setImageLayout(cmdBuf, *image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
         });
     }
@@ -357,29 +367,30 @@ struct Image {
         }
     }
 
-    static void setImageLayout(vk::CommandBuffer commandBuffer, vk::Image image,
-                               vk::ImageLayout oldLayout, vk::ImageLayout newLayout) {
+    static void setImageLayout(vk::CommandBuffer commandBuffer,
+                               vk::Image image,
+                               vk::ImageLayout oldLayout,
+                               vk::ImageLayout newLayout) {
         auto barrier = vk::ImageMemoryBarrier()
-            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-            .setImage(image)
-            .setOldLayout(oldLayout)
-            .setNewLayout(newLayout)
-            .setSubresourceRange({ vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 })
-            .setSrcAccessMask(toAccessFlags(oldLayout))
-            .setDstAccessMask(toAccessFlags(newLayout));
+                           .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                           .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                           .setImage(image)
+                           .setOldLayout(oldLayout)
+                           .setNewLayout(newLayout)
+                           .setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1})
+                           .setSrcAccessMask(toAccessFlags(oldLayout))
+                           .setDstAccessMask(toAccessFlags(newLayout));
         commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-                                      vk::PipelineStageFlagBits::eAllCommands,
-                                      {}, {}, {}, barrier);
+                                      vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, barrier);
     }
 
     static void copyImage(vk::CommandBuffer commandBuffer, vk::Image srcImage, vk::Image dstImage) {
         auto copyRegion = vk::ImageCopy()
-            .setSrcSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 })
-            .setDstSubresource({ vk::ImageAspectFlagBits::eColor, 0, 0, 1 })
-            .setExtent({ WIDTH, HEIGHT, 1 });
-        commandBuffer.copyImage(srcImage, vk::ImageLayout::eTransferSrcOptimal,
-                                dstImage, vk::ImageLayout::eTransferDstOptimal, copyRegion);
+                              .setSrcSubresource({vk::ImageAspectFlagBits::eColor, 0, 0, 1})
+                              .setDstSubresource({vk::ImageAspectFlagBits::eColor, 0, 0, 1})
+                              .setExtent({WIDTH, HEIGHT, 1});
+        commandBuffer.copyImage(srcImage, vk::ImageLayout::eTransferSrcOptimal, dstImage,
+                                vk::ImageLayout::eTransferDstOptimal, copyRegion);
     }
 
     vk::UniqueImage image;
@@ -390,39 +401,41 @@ struct Image {
 
 struct Accel {
     Accel() = default;
-    Accel(const Context& context, vk::AccelerationStructureGeometryKHR geometry,
-          uint32_t primitiveCount, vk::AccelerationStructureTypeKHR type) {
+    Accel(const Context& context,
+          vk::AccelerationStructureGeometryKHR geometry,
+          uint32_t primitiveCount,
+          vk::AccelerationStructureTypeKHR type) {
         vk::AccelerationStructureBuildGeometryInfoKHR buildGeometryInfo;
         buildGeometryInfo.setType(type);
-        buildGeometryInfo.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace | 
+        buildGeometryInfo.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace |
                                    vk::BuildAccelerationStructureFlagBitsKHR::eAllowDataAccess);
         buildGeometryInfo.setGeometries(geometry);
 
         // Create buffer
-        vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo = context.device->getAccelerationStructureBuildSizesKHR(
-            vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
+        vk::AccelerationStructureBuildSizesInfoKHR buildSizesInfo =
+            context.device->getAccelerationStructureBuildSizesKHR(
+                vk::AccelerationStructureBuildTypeKHR::eDevice, buildGeometryInfo, primitiveCount);
         vk::DeviceSize size = buildSizesInfo.accelerationStructureSize;
-        buffer = Buffer{ context, Buffer::Type::AccelStorage, size };
+        buffer = Buffer{context, Buffer::Type::AccelStorage, size};
 
         // Create accel
         accel = context.device->createAccelerationStructureKHRUnique(
             vk::AccelerationStructureCreateInfoKHR()
-            .setBuffer(*buffer.buffer)
-            .setSize(size)
-            .setType(type));
+                .setBuffer(*buffer.buffer)
+                .setSize(size)
+                .setType(type));
 
         // Build
-        Buffer scratchBuffer{ context, Buffer::Type::Scratch, size };
+        Buffer scratchBuffer{context, Buffer::Type::Scratch, size};
         buildGeometryInfo.setScratchData(scratchBuffer.deviceAddress);
         buildGeometryInfo.setDstAccelerationStructure(*accel);
 
-        vk::AccelerationStructureBuildRangeInfoKHR buildRangeInfo{ primitiveCount, 0, 0, 0 };
-        context.oneTimeSubmit(
-            [&](vk::CommandBuffer commandBuffer) {
+        vk::AccelerationStructureBuildRangeInfoKHR buildRangeInfo{primitiveCount, 0, 0, 0};
+        context.oneTimeSubmit([&](vk::CommandBuffer commandBuffer) {
             commandBuffer.buildAccelerationStructuresKHR(buildGeometryInfo, &buildRangeInfo);
         });
 
-        accelInfo = vk::WriteDescriptorSetAccelerationStructureKHR{ *accel };
+        accelInfo = vk::WriteDescriptorSetAccelerationStructureKHR{*accel};
     }
 
     Buffer buffer;
@@ -430,136 +443,159 @@ struct Accel {
     vk::WriteDescriptorSetAccelerationStructureKHR accelInfo;
 };
 
-struct App
-{
-    App()
-    {
+struct App {
+    App() {
         swapchain = context.device->createSwapchainKHRUnique(
             vk::SwapchainCreateInfoKHR()
-            .setSurface(*context.surface)
-            .setMinImageCount(3)
-            .setImageFormat(vk::Format::eB8G8R8A8Unorm)
-            .setImageColorSpace(vk::ColorSpaceKHR::eSrgbNonlinear)
-            .setImageExtent({ WIDTH, HEIGHT })
-            .setImageArrayLayers(1)
-            .setImageUsage(vk::ImageUsageFlagBits::eTransferDst)
-            .setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
-            .setPresentMode(vk::PresentModeKHR::eFifo)
-            .setClipped(true)
-            .setQueueFamilyIndices(context.queueFamily));
+                .setSurface(*context.surface)
+                .setMinImageCount(3)
+                .setImageFormat(vk::Format::eB8G8R8A8Unorm)
+                .setImageColorSpace(vk::ColorSpaceKHR::eSrgbNonlinear)
+                .setImageExtent({WIDTH, HEIGHT})
+                .setImageArrayLayers(1)
+                .setImageUsage(vk::ImageUsageFlagBits::eTransferDst)
+                .setPreTransform(vk::SurfaceTransformFlagBitsKHR::eIdentity)
+                .setPresentMode(vk::PresentModeKHR::eFifo)
+                .setClipped(true)
+                .setQueueFamilyIndices(context.queueFamily));
 
         swapchainImages = context.device->getSwapchainImagesKHR(*swapchain);
 
         commandBuffers = context.device->allocateCommandBuffersUnique(
             vk::CommandBufferAllocateInfo()
-            .setCommandPool(*context.commandPool)
-            .setCommandBufferCount(swapchainImages.size()));
+                .setCommandPool(*context.commandPool)
+                .setCommandBufferCount(swapchainImages.size()));
     }
 
-    void run()
-    {
-        outputImage = Image{ context, {WIDTH, HEIGHT}, vk::Format::eB8G8R8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst };
+    void run() {
+        outputImage =
+            Image{context,
+                  {WIDTH, HEIGHT},
+                  vk::Format::eB8G8R8A8Unorm,
+                  vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc |
+                      vk::ImageUsageFlagBits::eTransferDst};
 
         std::vector<Vertex> vertices;
         std::vector<uint32_t> indices;
         std::vector<Face> faces;
         loadFromFile(vertices, indices, faces);
 
-        Buffer vertexBuffer{ context, Buffer::Type::AccelInput, sizeof(Vertex) * vertices.size(), vertices.data() };
-        Buffer indexBuffer{ context, Buffer::Type::AccelInput, sizeof(uint32_t) * indices.size(), indices.data() };
-        Buffer faceBuffer{ context, Buffer::Type::AccelInput, sizeof(Face) * faces.size(), faces.data() };
+        Buffer vertexBuffer{context, Buffer::Type::AccelInput, sizeof(Vertex) * vertices.size(),
+                            vertices.data()};
+        Buffer indexBuffer{context, Buffer::Type::AccelInput, sizeof(uint32_t) * indices.size(),
+                           indices.data()};
+        Buffer faceBuffer{context, Buffer::Type::AccelInput, sizeof(Face) * faces.size(),
+                          faces.data()};
 
         auto triangleData = vk::AccelerationStructureGeometryTrianglesDataKHR()
-            .setVertexFormat(vk::Format::eR32G32B32Sfloat)
-            .setVertexData(vertexBuffer.deviceAddress)
-            .setVertexStride(sizeof(Vertex))
-            .setMaxVertex(static_cast<uint32_t>(vertices.size()))
-            .setIndexType(vk::IndexType::eUint32)
-            .setIndexData(indexBuffer.deviceAddress);
+                                .setVertexFormat(vk::Format::eR32G32B32Sfloat)
+                                .setVertexData(vertexBuffer.deviceAddress)
+                                .setVertexStride(sizeof(Vertex))
+                                .setMaxVertex(static_cast<uint32_t>(vertices.size()))
+                                .setIndexType(vk::IndexType::eUint32)
+                                .setIndexData(indexBuffer.deviceAddress);
 
         auto triangleGeometry = vk::AccelerationStructureGeometryKHR()
-            .setGeometryType(vk::GeometryTypeKHR::eTriangles)
-            .setGeometry({ triangleData })
-            .setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+                                    .setGeometryType(vk::GeometryTypeKHR::eTriangles)
+                                    .setGeometry({triangleData})
+                                    .setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
         auto primitiveCount = static_cast<uint32_t>(indices.size() / 3);
 
-        Accel bottomAccel{ context, triangleGeometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel };
+        Accel bottomAccel{context, triangleGeometry, primitiveCount,
+                          vk::AccelerationStructureTypeKHR::eBottomLevel};
 
-        vk::TransformMatrixKHR transformMatrix = std::array{
-            std::array{1.0f, 0.0f, 0.0f, 0.0f},
-            std::array{0.0f, 1.0f, 0.0f, 0.0f},
-            std::array{0.0f, 0.0f, 1.0f, 0.0f} };
+        vk::TransformMatrixKHR transformMatrix =
+            std::array{std::array{1.0f, 0.0f, 0.0f, 0.0f}, std::array{0.0f, 1.0f, 0.0f, 0.0f},
+                       std::array{0.0f, 0.0f, 1.0f, 0.0f}};
 
-        auto asInstance = vk::AccelerationStructureInstanceKHR()
-            .setTransform(transformMatrix)
-            .setMask(0xFF)
-            .setAccelerationStructureReference(bottomAccel.buffer.deviceAddress)
-            .setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
+        auto asInstance =
+            vk::AccelerationStructureInstanceKHR()
+                .setTransform(transformMatrix)
+                .setMask(0xFF)
+                .setAccelerationStructureReference(bottomAccel.buffer.deviceAddress)
+                .setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable);
 
-        Buffer instancesBuffer{ context, Buffer::Type::AccelInput, sizeof(vk::AccelerationStructureInstanceKHR), &asInstance };
+        Buffer instancesBuffer{context, Buffer::Type::AccelInput,
+                               sizeof(vk::AccelerationStructureInstanceKHR), &asInstance};
 
-        auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR()
-            .setArrayOfPointers(false)
-            .setData(instancesBuffer.deviceAddress);
+        auto instancesData =
+            vk::AccelerationStructureGeometryInstancesDataKHR().setArrayOfPointers(false).setData(
+                instancesBuffer.deviceAddress);
 
         auto instanceGeometry = vk::AccelerationStructureGeometryKHR()
-            .setGeometryType(vk::GeometryTypeKHR::eInstances)
-            .setGeometry({ instancesData })
-            .setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+                                    .setGeometryType(vk::GeometryTypeKHR::eInstances)
+                                    .setGeometry({instancesData})
+                                    .setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 
-        Accel topAccel{ context, instanceGeometry, 1, vk::AccelerationStructureTypeKHR::eTopLevel };
+        Accel topAccel{context, instanceGeometry, 1, vk::AccelerationStructureTypeKHR::eTopLevel};
 
         const std::vector<char> raygenCode = readFile("../shaders/raygen.rgen.spv");
         const std::vector<char> missCode = readFile("../shaders/miss.rmiss.spv");
         const std::vector<char> chitCode = readFile("../shaders/closesthit.rchit.spv");
         std::array shaderModules{
-            context.device->createShaderModuleUnique({{}, raygenCode.size(), reinterpret_cast<const uint32_t*>(raygenCode.data())}),
-            context.device->createShaderModuleUnique({{}, missCode.size(), reinterpret_cast<const uint32_t*>(missCode.data())}),
-            context.device->createShaderModuleUnique({{}, chitCode.size(), reinterpret_cast<const uint32_t*>(chitCode.data())}) };
+            context.device->createShaderModuleUnique(
+                {{}, raygenCode.size(), reinterpret_cast<const uint32_t*>(raygenCode.data())}),
+            context.device->createShaderModuleUnique(
+                {{}, missCode.size(), reinterpret_cast<const uint32_t*>(missCode.data())}),
+            context.device->createShaderModuleUnique(
+                {{}, chitCode.size(), reinterpret_cast<const uint32_t*>(chitCode.data())})};
 
         std::array shaderStages{
-            vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules[0], "main"},
-            vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eMissKHR, *shaderModules[1], "main"},
-            vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules[2], "main"} };
+            vk::PipelineShaderStageCreateInfo{
+                {}, vk::ShaderStageFlagBits::eRaygenKHR, *shaderModules[0], "main"},
+            vk::PipelineShaderStageCreateInfo{
+                {}, vk::ShaderStageFlagBits::eMissKHR, *shaderModules[1], "main"},
+            vk::PipelineShaderStageCreateInfo{
+                {}, vk::ShaderStageFlagBits::eClosestHitKHR, *shaderModules[2], "main"}};
 
         std::array shaderGroups{
-            vk::RayTracingShaderGroupCreateInfoKHR{vk::RayTracingShaderGroupTypeKHR::eGeneral, 0, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR},
-            vk::RayTracingShaderGroupCreateInfoKHR{vk::RayTracingShaderGroupTypeKHR::eGeneral, 1, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR},
-            vk::RayTracingShaderGroupCreateInfoKHR{vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup, VK_SHADER_UNUSED_KHR, 2, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR} };
+            vk::RayTracingShaderGroupCreateInfoKHR{vk::RayTracingShaderGroupTypeKHR::eGeneral, 0,
+                                                   VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
+                                                   VK_SHADER_UNUSED_KHR},
+            vk::RayTracingShaderGroupCreateInfoKHR{vk::RayTracingShaderGroupTypeKHR::eGeneral, 1,
+                                                   VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
+                                                   VK_SHADER_UNUSED_KHR},
+            vk::RayTracingShaderGroupCreateInfoKHR{
+                vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup, VK_SHADER_UNUSED_KHR, 2,
+                VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR}};
 
         // create ray tracing pipeline
         std::vector<vk::DescriptorSetLayoutBinding> bindings{
-            {0, vk::DescriptorType::eAccelerationStructureKHR, 1, vk::ShaderStageFlagBits::eRaygenKHR},  // Binding = 0 : TLAS
-            {1, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eRaygenKHR},              // Binding = 1 : Storage image
-            {2, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitKHR},         // Binding = 2 : Vertices
-            {3, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitKHR},         // Binding = 3 : Indices
-            {4, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitKHR},         // Binding = 4 : Faces
+            {0, vk::DescriptorType::eAccelerationStructureKHR, 1,
+             vk::ShaderStageFlagBits::eRaygenKHR},  // Binding = 0 : TLAS
+            {1, vk::DescriptorType::eStorageImage, 1,
+             vk::ShaderStageFlagBits::eRaygenKHR},  // Binding = 1 : Storage image
+            {2, vk::DescriptorType::eStorageBuffer, 1,
+             vk::ShaderStageFlagBits::eClosestHitKHR},  // Binding = 2 : Faces
         };
 
-        vk::UniqueDescriptorSetLayout descSetLayout = context.device->createDescriptorSetLayoutUnique({ {}, bindings });
+        vk::UniqueDescriptorSetLayout descSetLayout =
+            context.device->createDescriptorSetLayoutUnique({{}, bindings});
 
         auto pushRange = vk::PushConstantRange()
-            .setOffset(0)
-            .setSize(sizeof(int))
-            .setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
-        vk::UniquePipelineLayout pipelineLayout = context.device->createPipelineLayoutUnique({ {}, *descSetLayout, pushRange });
+                             .setOffset(0)
+                             .setSize(sizeof(int))
+                             .setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR);
+        vk::UniquePipelineLayout pipelineLayout =
+            context.device->createPipelineLayoutUnique({{}, *descSetLayout, pushRange});
 
         // Create pipeline
         auto res = context.device->createRayTracingPipelineKHRUnique(
             nullptr, nullptr,
             vk::RayTracingPipelineCreateInfoKHR()
-            .setStages(shaderStages)
-            .setGroups(shaderGroups)
-            .setMaxPipelineRayRecursionDepth(4)
-            .setLayout(*pipelineLayout));
+                .setStages(shaderStages)
+                .setGroups(shaderGroups)
+                .setMaxPipelineRayRecursionDepth(4)
+                .setLayout(*pipelineLayout));
         if (res.result != vk::Result::eSuccess) {
             throw std::runtime_error("failed to create ray tracing pipeline.");
         }
         vk::UniquePipeline pipeline = std::move(res.value);
 
         // Get Ray Tracing Properties
-        auto properties = context.physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+        auto properties = context.physicalDevice.getProperties2<
+            vk::PhysicalDeviceProperties2, vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
         auto rtProperties = properties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 
         // Calculate SBT size
@@ -570,20 +606,24 @@ struct App
 
         // Get shader group handles
         std::vector<uint8_t> handleStorage(sbtSize);
-        if (context.device->getRayTracingShaderGroupHandlesKHR(*pipeline, 0, groupCount, sbtSize, handleStorage.data()) != vk::Result::eSuccess) {
+        if (context.device->getRayTracingShaderGroupHandlesKHR(
+                *pipeline, 0, groupCount, sbtSize, handleStorage.data()) != vk::Result::eSuccess) {
             throw std::runtime_error("failed to get ray tracing shader group handles.");
         }
 
-        Buffer raygenSBT{ context, Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 0 * handleSizeAligned };
-        Buffer missSBT{ context, Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 1 * handleSizeAligned };
-        Buffer hitSBT{ context, Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 2 * handleSizeAligned };
+        Buffer raygenSBT{context, Buffer::Type::ShaderBindingTable, handleSize,
+                         handleStorage.data() + 0 * handleSizeAligned};
+        Buffer missSBT{context, Buffer::Type::ShaderBindingTable, handleSize,
+                       handleStorage.data() + 1 * handleSizeAligned};
+        Buffer hitSBT{context, Buffer::Type::ShaderBindingTable, handleSize,
+                      handleStorage.data() + 2 * handleSizeAligned};
 
         uint32_t stride = rtProperties.shaderGroupHandleAlignment;
         uint32_t size = rtProperties.shaderGroupHandleAlignment;
 
-        vk::StridedDeviceAddressRegionKHR raygenRegion{ raygenSBT.deviceAddress, stride, size };
-        vk::StridedDeviceAddressRegionKHR missRegion{ missSBT.deviceAddress, stride, size };
-        vk::StridedDeviceAddressRegionKHR hitRegion{ hitSBT.deviceAddress, stride, size };
+        vk::StridedDeviceAddressRegionKHR raygenRegion{raygenSBT.deviceAddress, stride, size};
+        vk::StridedDeviceAddressRegionKHR missRegion{missSBT.deviceAddress, stride, size};
+        vk::StridedDeviceAddressRegionKHR hitRegion{hitSBT.deviceAddress, stride, size};
 
         vk::UniqueDescriptorSet descSet = context.allocateDescSet(*descSetLayout);
         std::vector<vk::WriteDescriptorSet> writes(bindings.size());
@@ -595,9 +635,7 @@ struct App
         }
         writes[0].setPNext(&topAccel.accelInfo);
         writes[1].setImageInfo(outputImage.imageInfo);
-        writes[2].setBufferInfo(vertexBuffer.bufferInfo);
-        writes[3].setBufferInfo(indexBuffer.bufferInfo);
-        writes[4].setBufferInfo(faceBuffer.bufferInfo);
+        writes[2].setBufferInfo(faceBuffer.bufferInfo);
         context.device->updateDescriptorSets(writes, nullptr);
 
         int frame = 0;
@@ -605,25 +643,34 @@ struct App
             glfwPollEvents();
 
             // Acquire next image
-            vk::Semaphore imageAcquiredSemaphore = context.device->createSemaphore(vk::SemaphoreCreateInfo());
-            frameIndex = context.device->acquireNextImageKHR(*swapchain, UINT64_MAX, imageAcquiredSemaphore).value;
+            vk::Semaphore imageAcquiredSemaphore =
+                context.device->createSemaphore(vk::SemaphoreCreateInfo());
+            frameIndex =
+                context.device->acquireNextImageKHR(*swapchain, UINT64_MAX, imageAcquiredSemaphore)
+                    .value;
             context.device->destroySemaphore(imageAcquiredSemaphore);
 
             // Record commands
             vk::CommandBuffer commandBuffer = *commandBuffers[frameIndex];
             commandBuffer.begin(vk::CommandBufferBeginInfo());
             commandBuffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, *pipeline);
-            commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout, 0, *descSet, nullptr);
-            commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(int), &frame);
+            commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, *pipelineLayout,
+                                             0, *descSet, nullptr);
+            commandBuffer.pushConstants(*pipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0,
+                                        sizeof(int), &frame);
             commandBuffer.traceRaysKHR(raygenRegion, missRegion, hitRegion, {}, WIDTH, HEIGHT, 1);
 
             vk::Image srcImage = *outputImage.image;
             vk::Image dstImage = swapchainImages[frameIndex];
-            Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal);
-            Image::setImageLayout(commandBuffer, dstImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+            Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eGeneral,
+                                  vk::ImageLayout::eTransferSrcOptimal);
+            Image::setImageLayout(commandBuffer, dstImage, vk::ImageLayout::eUndefined,
+                                  vk::ImageLayout::eTransferDstOptimal);
             Image::copyImage(commandBuffer, srcImage, dstImage);
-            Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral);
-            Image::setImageLayout(commandBuffer, dstImage, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR);
+            Image::setImageLayout(commandBuffer, srcImage, vk::ImageLayout::eTransferSrcOptimal,
+                                  vk::ImageLayout::eGeneral);
+            Image::setImageLayout(commandBuffer, dstImage, vk::ImageLayout::eTransferDstOptimal,
+                                  vk::ImageLayout::ePresentSrcKHR);
 
             commandBuffer.end();
 
@@ -631,9 +678,8 @@ struct App
             context.queue.submit(vk::SubmitInfo().setCommandBuffers(commandBuffer));
 
             // Present image
-            auto result = context.queue.presentKHR(vk::PresentInfoKHR()
-                                                   .setSwapchains(*swapchain)
-                                                   .setImageIndices(frameIndex));
+            auto result = context.queue.presentKHR(
+                vk::PresentInfoKHR().setSwapchains(*swapchain).setImageIndices(frameIndex));
             if (result != vk::Result::eSuccess) {
                 throw std::runtime_error("failed to present.");
             }
