@@ -111,7 +111,7 @@ struct Context {
 
         // Create surface
         VkSurfaceKHR _surface;
-        VkResult res = glfwCreateWindowSurface(VkInstance(*instance), window, nullptr, &_surface);
+        VkResult res = glfwCreateWindowSurface(*instance, window, nullptr, &_surface);
         if (res != VK_SUCCESS) {
             throw std::runtime_error("failed to create window surface!");
         }
