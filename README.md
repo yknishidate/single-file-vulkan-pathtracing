@@ -20,7 +20,7 @@ See [Vulkan Tutorial / Development environment](https://vulkan-tutorial.com/Deve
 ```
 git clone --recursive https://github.com/yknishidate/single-file-vulkan-pathtracing
 cd single-file-vulkan-pathtracing
-cmake . -Bbuild
+cmake . -B build
 ```
 
 # References
