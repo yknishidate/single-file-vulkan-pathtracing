@@ -482,6 +482,7 @@ int main() {
                       vk::Format::eB8G8R8A8Unorm,
                       vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst};
 
+    // Load mesh
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     std::vector<Face> faces;
@@ -491,6 +492,7 @@ int main() {
     Buffer indexBuffer{context, Buffer::Type::AccelInput, sizeof(uint32_t) * indices.size(), indices.data()};
     Buffer faceBuffer{context, Buffer::Type::AccelInput, sizeof(Face) * faces.size(), faces.data()};
 
+    // Create bottom level accel struct
     vk::AccelerationStructureGeometryTrianglesDataKHR triangleData;
     triangleData.setVertexFormat(vk::Format::eR32G32B32Sfloat);
     triangleData.setVertexData(vertexBuffer.deviceAddress);
@@ -508,6 +510,7 @@ int main() {
 
     Accel bottomAccel{context, triangleGeometry, primitiveCount, vk::AccelerationStructureTypeKHR::eBottomLevel};
 
+    // Create top level accel struct
     vk::TransformMatrixKHR transformMatrix = std::array{
         std::array{1.0f, 0.0f, 0.0f, 0.0f},
         std::array{0.0f, 1.0f, 0.0f, 0.0f},
@@ -533,6 +536,7 @@ int main() {
 
     Accel topAccel{context, instanceGeometry, 1, vk::AccelerationStructureTypeKHR::eTopLevel};
 
+    // Load shaders
     const std::vector<char> raygenCode = readFile("../shaders/raygen.rgen.spv");
     const std::vector<char> missCode = readFile("../shaders/miss.rmiss.spv");
     const std::vector<char> chitCode = readFile("../shaders/closesthit.rchit.spv");
@@ -561,10 +565,12 @@ int main() {
         {4, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitKHR},         // Binding = 4 : Faces
     };
 
+    // Create desc set layout
     vk::DescriptorSetLayoutCreateInfo descSetLayoutInfo;
     descSetLayoutInfo.setBindings(bindings);
     vk::UniqueDescriptorSetLayout descSetLayout = context.device->createDescriptorSetLayoutUnique(descSetLayoutInfo);
 
+    // Create pipeline layout
     vk::PushConstantRange pushRange;
     pushRange.setOffset(0);
     pushRange.setSize(sizeof(int));
@@ -589,11 +595,11 @@ int main() {
 
     vk::UniquePipeline pipeline = std::move(result.value);
 
-    // Get Ray Tracing Properties
+    // Get ray tracing properties
     auto properties = context.physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
     auto rtProperties = properties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 
-    // Calculate SBT size
+    // Calculate shader binding table (SBT) size
     uint32_t handleSize = rtProperties.shaderGroupHandleSize;
     uint32_t handleSizeAligned = rtProperties.shaderGroupHandleAlignment;
     uint32_t groupCount = static_cast<uint32_t>(shaderGroups.size());
@@ -605,6 +611,7 @@ int main() {
         throw std::runtime_error("failed to get ray tracing shader group handles.");
     }
 
+    // Create SBT
     Buffer raygenSBT{context, Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 0 * handleSizeAligned};
     Buffer missSBT{context, Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 1 * handleSizeAligned};
     Buffer hitSBT{context, Buffer::Type::ShaderBindingTable, handleSize, handleStorage.data() + 2 * handleSizeAligned};
@@ -616,6 +623,7 @@ int main() {
     vk::StridedDeviceAddressRegionKHR missRegion{missSBT.deviceAddress, stride, size};
     vk::StridedDeviceAddressRegionKHR hitRegion{hitSBT.deviceAddress, stride, size};
 
+    // Create desc set
     vk::UniqueDescriptorSet descSet = context.allocateDescSet(*descSetLayout);
     std::vector<vk::WriteDescriptorSet> writes(bindings.size());
     for (int i = 0; i < bindings.size(); i++) {
@@ -631,6 +639,7 @@ int main() {
     writes[4].setBufferInfo(faceBuffer.descBufferInfo);
     context.device->updateDescriptorSets(writes, nullptr);
 
+    // Main loop
     uint32_t imageIndex = 0;
     int frame = 0;
     vk::UniqueSemaphore imageAcquiredSemaphore = context.device->createSemaphoreUnique(vk::SemaphoreCreateInfo());
