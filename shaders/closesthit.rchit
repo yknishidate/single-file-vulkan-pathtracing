@@ -1,10 +1,11 @@
 #version 460
 #extension GL_EXT_ray_tracing : enable
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_ray_tracing_position_fetch : enable
 #include "common.glsl"
 
-layout(binding = 2, set = 0) buffer Faces{float faces[];};
+layout(binding = 2, set = 0) buffer Vertices{float vertices[];};
+layout(binding = 3, set = 0) buffer Indices{uint indices[];};
+layout(binding = 4, set = 0) buffer Faces{float faces[];};
 
 layout(location = 0) rayPayloadInEXT HitPayload payload;
 hitAttributeEXT vec3 attribs;
@@ -20,6 +21,15 @@ struct Face
     vec3 emission;
 };
 
+Vertex unpackVertex(uint index)
+{
+    uint stride = 3;
+    uint offset = index * stride;
+    Vertex v;
+    v.pos = vec3(vertices[offset +  0], vertices[offset +  1], vertices[offset + 2]);
+    return v;
+}
+
 Face unpackFace(uint index)
 {
     uint stride = 6;
@@ -30,20 +40,22 @@ Face unpackFace(uint index)
     return f;
 }
 
-vec3 calcNormal(vec3 vertPos0, vec3 vertPos1, vec3 vertPos2)
+vec3 calcNormal(Vertex v0, Vertex v1, Vertex v2)
 {
-    return -normalize(cross(vertPos1 - vertPos0, vertPos2 - vertPos0));
+    vec3 e01 = v1.pos - v0.pos;
+    vec3 e02 = v2.pos - v0.pos;
+    return -normalize(cross(e01, e02));
 }
 
 void main()
 {
-    vec3 vertPos0 = gl_HitTriangleVertexPositionsEXT[0];
-    vec3 vertPos1 = gl_HitTriangleVertexPositionsEXT[1];
-    vec3 vertPos2 = gl_HitTriangleVertexPositionsEXT[2];
+    Vertex v0 = unpackVertex(indices[3 * gl_PrimitiveID + 0]);
+    Vertex v1 = unpackVertex(indices[3 * gl_PrimitiveID + 1]);
+    Vertex v2 = unpackVertex(indices[3 * gl_PrimitiveID + 2]);
 
-    const vec3 barycentricCoords = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
-    vec3 pos = vertPos0 * barycentricCoords.x + vertPos1 * barycentricCoords.y + vertPos2 * barycentricCoords.z;
-    vec3 normal = calcNormal(vertPos0, vertPos1, vertPos2);
+    const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
+    vec3 pos = v0.pos * barycentricCoords.x + v1.pos * barycentricCoords.y + v2.pos * barycentricCoords.z;
+    vec3 normal = calcNormal(v0, v1, v2);
 
     Face face = unpackFace(gl_PrimitiveID);
     payload.brdf = face.diffuse / M_PI;
