@@ -13,8 +13,8 @@
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
-constexpr int WIDTH = 1024;
-constexpr int HEIGHT = 1024;
+static constexpr int WIDTH = 1024;
+static constexpr int HEIGHT = 1024;
 
 struct Vertex {
     float position[3];
@@ -92,7 +92,7 @@ struct Context {
 
         // Create instance
         vk::ApplicationInfo appInfo;
-        appInfo.setApiVersion(VK_API_VERSION_1_3);
+        appInfo.setApiVersion(VK_API_VERSION_1_4);
 
         vk::InstanceCreateInfo instanceInfo;
         instanceInfo.setPApplicationInfo(&appInfo);
@@ -244,10 +244,11 @@ struct Context {
         return std::move(device->allocateDescriptorSetsUnique(descSetInfo).front());
     }
 
-    static VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                                                                      VkDebugUtilsMessageTypeFlagsEXT messageTypes,
-                                                                      VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData,
-                                                                      void* pUserData) {
+    static VKAPI_ATTR vk::Bool32 VKAPI_CALL 
+        debugUtilsMessengerCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                    vk::DebugUtilsMessageTypeFlagsEXT messageTypes,
+                                    vk::DebugUtilsMessengerCallbackDataEXT const* pCallbackData,
+                                    void* pUserData) {
         std::cerr << pCallbackData->pMessage << std::endl;
         return VK_FALSE;
     }

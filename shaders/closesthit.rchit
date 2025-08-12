@@ -59,7 +59,7 @@ void main()
 
     const Face face = unpackFace(gl_PrimitiveID);
     payload.brdf = face.diffuse / M_PI;
-    payload.emission = face.emission * 2.0;
+    payload.emission = face.emission;
     payload.position = position;
     payload.normal = normal;
 }

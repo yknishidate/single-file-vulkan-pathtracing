@@ -86,7 +86,6 @@ void main()
     color /= maxSamples;
     
     vec4 oldColor = imageLoad(outputImage, ivec2(gl_LaunchIDEXT.xy));
-    vec4 newColor = vec4(color, 1.0);
-    newColor = (newColor + (oldColor * frame)) / (frame + 1);
+    vec4 newColor = (vec4(color, 1.0) + (oldColor * frame)) / (frame + 1);
     imageStore(outputImage, ivec2(gl_LaunchIDEXT.xy), newColor);
 }
