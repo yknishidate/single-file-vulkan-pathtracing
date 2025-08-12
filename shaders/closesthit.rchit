@@ -8,7 +8,7 @@ layout(binding = 3, set = 0) buffer Indices{uint indices[];};
 layout(binding = 4, set = 0) buffer Faces{float faces[];};
 
 layout(location = 0) rayPayloadInEXT HitPayload payload;
-hitAttributeEXT vec3 attribs;
+hitAttributeEXT vec2 attribs;
 
 struct Vertex
 {
